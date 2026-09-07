@@ -47,12 +47,30 @@ Agregarlo como colaborador (*Write*) antes.
 
 ## 2. Base de datos
 
-Aplicar las migraciones de `sql/` **en orden**, sobre Smart DASSA Central
-(`txlotccsiqaypkzobkxm`). El procedimiento con la Management API está en
-`sql/README.md`.
+Elegí la contraseña del rol de la app y ponela en el SQL:
 
-⚠️ Antes de correr `002_roles.sql`, **cambiar la contraseña placeholder** del
-rol `sincro_odoo_depofis_app` y guardarla sólo en el `.env`.
+```bash
+PG_PASS=$(node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))")
+echo "GUARDALA: $PG_PASS"
+sed -i "s/CAMBIAR_ANTES_DE_APLICAR/$PG_PASS/" sql/002_roles.sql
+```
+
+Aplicá las 5 migraciones vía la Management API (no hace falta psql ni un DSN
+admin — el box tampoco tiene `jq`, por eso el aplicador es Python):
+
+```bash
+export SUPABASE_MGMT_TOKEN='sbp_...'        # el PAT del inventario
+python3 scripts/aplicar_sql.py              # dry-run
+python3 scripts/aplicar_sql.py --apply
+```
+
+Y sacá la contraseña del archivo, que no tiene por qué quedar en el working tree:
+
+```bash
+git checkout sql/002_roles.sql
+```
+
+`PG_PASS` va después en `SINCRO_ODOO_DEPOFIS_PG_DSN` del `.env` (paso 3).
 
 ---
 

@@ -26,19 +26,22 @@ de un vecino de cluster.
 
 ## Cómo aplicarlas
 
-Desde el box, con la VPN levantada. Vía Management API (no hace falta psql):
+Desde el box, con la VPN levantada. Vía Management API (no hace falta psql ni un
+DSN admin):
 
 ```bash
-for f in sql/0*.sql; do
-  echo "── $f"
-  jq -Rs '{query: .}' < "$f" > /tmp/q.json
-  curl -sS -X POST "https://api.supabase.com/v1/projects/txlotccsiqaypkzobkxm/database/query" \
-    -H "Authorization: Bearer $SUPABASE_MGMT_TOKEN" \
-    -H "Content-Type: application/json" \
-    --data-binary @/tmp/q.json
-  echo
-done
+export SUPABASE_MGMT_TOKEN='sbp_...'        # el PAT del inventario
+python3 scripts/aplicar_sql.py              # dry-run: qué archivos y en qué orden
+python3 scripts/aplicar_sql.py --apply      # las aplica
 ```
+
+El script corta en el primer error, no imprime el token y trata
+"already exists" como "ya estaba aplicada" en vez de como falla — las migraciones
+son idempotentes (`IF NOT EXISTS`, `OR REPLACE`).
+
+⚠️ **No usar el bucle con `curl | jq`** que circula en otras apps: **app01 no
+tiene `jq`** instalado, y ese bucle además sigue de largo cuando una migración
+falla, dejando el schema a medio crear.
 
 ⚠️ Antes de correr `002_roles.sql`, **cambiar la contraseña placeholder** del
 rol y guardarla sólo en el `.env` del box.
