@@ -4,6 +4,23 @@
 -- corrida contra la anterior es una operación de conjuntos y el motor de la
 -- base la hace con un índice. Node sólo pagina y pinta.
 
+-- ⚠️ SE DROPEAN PRIMERO, y no es por prolijidad.
+--
+-- `CREATE OR REPLACE VIEW` sólo sabe AGREGAR columnas al final: si una columna
+-- nueva aparece en el medio del SELECT —como pasó al sumar `fuera_alcance` y
+-- `en_alcance` al resumen— falla con "cannot change name of view column". Este
+-- archivo está pensado para re-aplicarse entero cada vez que cambia la
+-- pantalla, así que se dropean y se rehacen.
+--
+-- El orden es el de dependencia (v_ultima_corrida lee v_corrida_resumen, que
+-- lee v_corrida_anterior). Sin CASCADE a propósito: si algún día aparece otro
+-- objeto colgado de estas vistas, es mejor que el DROP falle y alguien lo mire
+-- que borrarlo en silencio.
+DROP VIEW IF EXISTS sincro_odoo_depofis.v_ultima_corrida;
+DROP VIEW IF EXISTS sincro_odoo_depofis.v_corrida_resumen;
+DROP VIEW IF EXISTS sincro_odoo_depofis.v_novedad;
+DROP VIEW IF EXISTS sincro_odoo_depofis.v_corrida_anterior;
+
 -- ─── Corrida anterior ────────────────────────────────────────────────────
 -- "La anterior" es la corrida COMPLETADA inmediatamente previa, sin importar
 -- el modo: lo que importa es si el registro ya lo habíamos visto, no si esa
@@ -115,3 +132,15 @@ SELECT * FROM sincro_odoo_depofis.v_corrida_resumen
 WHERE estado IN ('ok', 'con_errores')
 ORDER BY iniciada_en DESC, id DESC
 LIMIT 1;
+
+-- ─── Permisos ────────────────────────────────────────────────────────────
+-- Explicito, y no confiando en el ALTER DEFAULT PRIVILEGES de 002_roles.sql.
+-- Ese default sólo alcanza a los objetos que cree el MISMO rol que lo declaro:
+-- si algun dia estas migraciones se aplican con otra cuenta (un DSN de admin en
+-- vez de la Management API), las vistas quedarian sin GRANT y la app veria un
+-- "permission denied for view" despues de un deploy que parecio exitoso.
+-- Como arriba se dropean y se rehacen, esto se re-aplica siempre.
+GRANT SELECT ON sincro_odoo_depofis.v_corrida_anterior TO sincro_odoo_depofis_app;
+GRANT SELECT ON sincro_odoo_depofis.v_novedad          TO sincro_odoo_depofis_app;
+GRANT SELECT ON sincro_odoo_depofis.v_corrida_resumen  TO sincro_odoo_depofis_app;
+GRANT SELECT ON sincro_odoo_depofis.v_ultima_corrida   TO sincro_odoo_depofis_app;
