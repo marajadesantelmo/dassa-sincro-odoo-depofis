@@ -40,7 +40,7 @@ _discovery_log = []
 
 def _try_authenticate(common_proxy, db):
     try:
-        uid = common_proxy.authenticate(db, config.ODOO_LOGIN, config.requerido('ODOO_KEY', 'la API key de Odoo'), {})
+        uid = common_proxy.authenticate(db, config.ODOO_LOGIN, config.odoo_key(), {})
     except xmlrpc.client.Fault as e:
         _discovery_log.append("  - '{}': Fault - {}".format(db, e.faultString))
         return None
@@ -115,8 +115,7 @@ def _execute_kw(model, method, *args, **kwargs):
             "Metodos permitidos: {}".format(method, sorted(_READ_ONLY_METHODS)))
     _ensure_connected()
     return _object_proxy.execute_kw(
-        _db, _uid, config.requerido('ODOO_KEY', 'la API key de Odoo'),
-        model, method, list(args), kwargs)
+        _db, _uid, config.odoo_key(), model, method, list(args), kwargs)
 
 
 def search(model, domain, offset=0, limit=None, order=None):

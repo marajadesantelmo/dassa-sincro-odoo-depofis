@@ -70,8 +70,18 @@ def requerido(clave, para_que):
 # ─── Odoo (solo lectura) ───────────────────────────────────────────────────
 
 ODOO_URL = valor('ODOO_URL', 'https://gestion.dassa.com.ar')
-ODOO_LOGIN = valor('ODOO_LOGIN', 'facundo@pymetech.com.ar')
 ODOO_DB = valor('ODOO_DB')  # opcional: si falta, el cliente la descubre
+
+# El login y la key aceptan DOS nombres cada uno. `conciliacion-proveedores` —la
+# otra app del ecosistema que lee este mismo Odoo— los llama `ODOO_USER` y
+# `ODOO_API_KEY`, y conviene poder copiar un `.env` de una app a la otra sin
+# tener que renombrar nada. Gana el nombre propio si están los dos.
+ODOO_LOGIN = valor('ODOO_LOGIN') or valor('ODOO_USER', 'facundo@pymetech.com.ar')
+
+
+def odoo_key():
+    """La API key de Odoo, con el mismo doble nombre."""
+    return valor('ODOO_KEY') or requerido('ODOO_API_KEY', 'la API key de Odoo')
 
 # ─── DEPOFIS ───────────────────────────────────────────────────────────────
 #
