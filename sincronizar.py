@@ -16,12 +16,28 @@
 QUÉ HACE
 ────────
 Lee Odoo (solo lectura) y DEPOFIS, compara, y para cada registro decide una de
-tres acciones: `alta` (falta en DEPOFIS y hay datos para crearlo), `omitido`
-(no corresponde, con el motivo) o `error` (se intentó y DEPOFIS lo rechazó).
+cuatro acciones: `alta` (falta en DEPOFIS y hay datos para crearlo), `omitido`
+(no corresponde, con el motivo), `error` (se intentó y DEPOFIS lo rechazó) o
+`fuera_alcance` (no es asunto de esta rutina — ver abajo).
 El resultado se publica en la app `sincro-odoo-depofis`, que es donde se mira.
 
+EL ALCANCE: CLIENTES, NO PROVEEDORES
+────────────────────────────────────
+En Odoo clientes y proveedores conviven en `res.partner`; en DEPOFIS son dos
+tablas, `DASSA.Clientes` y `DASSA.Proveed`. Esta rutina sincroniza SÓLO
+clientes. Decisión de negocio: DEPOFIS no necesita estar al día en proveedores,
+ese maestro se administra en Odoo.
+
+Los contactos que son proveedores y no tienen ningún indicio de ser también
+clientes se registran como `fuera_alcance`, sin `requiere_atencion`, y la
+pantalla los deja fuera de la vista por default. Se publican igual —no se
+descartan en silencio— para que la exclusión se pueda auditar: un filtro que no
+se ve no se puede discutir. La regla y su verificación están en
+`reglas.clasificar_alcance`.
+
 1) CLIENTES · res.partner → DASSA.Clientes
-   Candidatos: is_company=True, vat cargado, depofis_code vacío en Odoo.
+   Candidatos: is_company=True, vat cargado, depofis_code vacío en Odoo,
+   y que pasen el filtro de alcance de arriba.
    Se omiten, con motivo:
      · CUIT ya presente en DASSA.Clientes.documento → el cliente ya existe en
        DEPOFIS y lo que falta es vincular `depofis_code` en Odoo. NO se
@@ -107,6 +123,7 @@ def titulo(t):
 
 CAMPOS_PARTNER = [
     'id', 'name', 'vat', 'category_id', 'user_id', 'is_dassa',
+    'customer_rank', 'supplier_rank',
     'l10n_ar_afip_responsibility_type_id', 'street', 'city', 'zip', 'phone', 'email',
 ]
 
@@ -127,6 +144,11 @@ def procesar_clientes(acceso, modo, pub, ahora):
     cuits = acceso.cuits_existentes()
     log('CUITs ya cargados en DASSA.Clientes: {}'.format(len(cuits)))
 
+    # El maestro de proveedores. Se lee para EXCLUIR, no para escribir: esta
+    # rutina no toca Proveed. Ver reglas.clasificar_alcance.
+    cuits_proveedores = acceso.cuits_proveedores()
+    log('CUITs cargados en DASSA.Proveed (sólo para excluir): {}'.format(len(cuits_proveedores)))
+
     siguiente = acceso.proximo_clie_nro()
     log('Próximo clie_nro a asignar: {}'.format(siguiente))
 
@@ -138,7 +160,7 @@ def procesar_clientes(acceso, modo, pub, ahora):
     )
     log('\n{} empresa(s) en Odoo con CUIT y sin depofis_code.\n'.format(len(candidatos)))
 
-    conteo = {'alta': 0, 'omitido': 0, 'error': 0, 'sin_vendedor': 0}
+    conteo = {'alta': 0, 'omitido': 0, 'error': 0, 'sin_vendedor': 0, 'fuera_alcance': 0}
 
     for p in candidatos:
         nombre = (p['name'] or '').strip()
@@ -160,6 +182,24 @@ def procesar_clientes(acceso, modo, pub, ahora):
             'vendedor_depofis': v.codigo,
         }
 
+        # ── Alcance: ¿es un cliente, o un proveedor? ───────────────────────
+        # Va PRIMERO. Es la única decisión que no es "qué le falta a este
+        # contacto para darse de alta" sino "este contacto no es asunto de esta
+        # rutina". Registrar un proveedor como omisión pendiente sería pedir un
+        # trabajo que nadie tiene que hacer.
+        categoria, categoria_ambigua = reglas.resolver_categoria(p['category_id'], categoria_por_id)
+        alcance = reglas.clasificar_alcance(
+            cuit_digitos,
+            p.get('customer_rank'), p.get('supplier_rank'),
+            bool(p['user_id']), bool(p['is_dassa']), bool(categoria),
+            cuits_proveedores, cuits,
+        )
+        if not alcance.en_alcance:
+            pub.agregar(dict(base, **vend, accion='fuera_alcance', requiere_atencion=False,
+                             payload={}, motivo=alcance.motivo))
+            conteo['fuera_alcance'] += 1
+            continue
+
         # ── Omisiones ──────────────────────────────────────────────────────
         if cuit_digitos in cuits:
             pub.agregar(dict(base, **vend, accion='omitido', requiere_atencion=True, payload={},
@@ -175,7 +215,6 @@ def procesar_clientes(acceso, modo, pub, ahora):
             conteo['omitido'] += 1
             continue
 
-        categoria, categoria_ambigua = reglas.resolver_categoria(p['category_id'], categoria_por_id)
         if not categoria:
             pub.agregar(dict(base, **vend, accion='omitido', requiere_atencion=True, payload={},
                              motivo='Sin etiqueta que corresponda a una categoría comercial de '
@@ -208,6 +247,10 @@ def procesar_clientes(acceso, modo, pub, ahora):
         }
 
         avisos = [v.motivo]
+        if alcance.motivo:
+            # Entró, pero también es proveedor. Queda dicho en la fila: es el
+            # caso en que conviene que una persona confirme antes del alta.
+            avisos.append(alcance.motivo)
         atencion = v.codigo is None
         if v.codigo is None:
             conteo['sin_vendedor'] += 1
@@ -243,6 +286,8 @@ def procesar_clientes(acceso, modo, pub, ahora):
             pub.agregar(dict(base, **vend, accion='alta', requiere_atencion=atencion,
                              payload=payload, motivo=' · '.join(avisos)))
 
+    log('Fuera de alcance (proveedores): {}  ·  evaluados como cliente: {}'.format(
+        conteo['fuera_alcance'], len(candidatos) - conteo['fuera_alcance']))
     log('Altas: {}  ·  omitidos: {}  ·  errores: {}'.format(
         conteo['alta'], conteo['omitido'], conteo['error']))
     if conteo['sin_vendedor']:

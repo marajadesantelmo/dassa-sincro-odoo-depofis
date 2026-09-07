@@ -11,6 +11,110 @@ from collections import namedtuple
 import re
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  ALCANCE — esta rutina sincroniza CLIENTES. Los proveedores no.
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# En Odoo clientes y proveedores conviven en `res.partner`. En DEPOFIS no: son
+# dos tablas distintas, `DASSA.Clientes` (1369 filas) y `DASSA.Proveed` (1609).
+# Esta rutina escribe únicamente en Clientes, y la decisión de negocio es que
+# **DEPOFIS no necesita estar actualizado en proveedores**: ese maestro se
+# administra en Odoo y ahí se queda.
+#
+# Sin este filtro la rutina evaluaba 117 contactos, de los cuales 62 eran
+# proveedores puros — EDESUR, Banco Santander, Claro, Telecentro, Starlink,
+# Exolgan, la Cámara de Depósitos Fiscales. Ninguno se daba de alta (les falta
+# la categoría comercial), pero todos aparecían en la pantalla como "omitido ·
+# requiere atención", o sea como trabajo pendiente que nadie iba a hacer nunca.
+# Un informe donde el 53 % de las filas es ruido entrena a no leerlo.
+#
+# POR QUÉ NO ALCANZA `customer_rank > 0`
+# ──────────────────────────────────────
+# Es la respuesta obvia y es la equivocada. De los 1951 contactos que YA están
+# vinculados a DEPOFIS —o sea, clientes reales y confirmados— el **85 % tiene
+# customer_rank = 0**. El rank de Odoo se incrementa al facturar en Odoo, y
+# DASSA factura por DEPOFIS. Usarlo como filtro positivo dejaría afuera a la
+# mayoría de la cartera.
+#
+# Sirve sólo en NEGATIVO, y combinado con la evidencia del propio DEPOFIS:
+#
+#   es_proveedor        supplier_rank > 0 y customer_rank == 0
+#                       ó el CUIT está en DASSA.Proveed y no en DASSA.Clientes
+#
+#   evidencia_cliente   customer_rank > 0  ·  tiene Salesperson  ·  is_dassa
+#                       ·  tiene una etiqueta que es categoría comercial DEPOFIS
+#
+# Se excluye sólo cuando hay evidencia de proveedor Y ninguna de cliente. La
+# asimetría es a propósito: dejar entrar un proveedor cuesta una fila de ruido,
+# dejar afuera un cliente cuesta un alta que nunca se hace.
+#
+# VERIFICADO (2026-09-07): aplicada a los 1951 contactos ya vinculados a DEPOFIS,
+# la regla **no excluye ninguno** (0 falsos negativos). Sobre los 117 candidatos
+# excluye 62 y rescata 4 que el filtro crudo por `supplier_rank` habría perdido.
+
+ResultadoAlcance = namedtuple('ResultadoAlcance', ['en_alcance', 'motivo', 'senales'])
+
+
+def clasificar_alcance(cuit_digitos, customer_rank, supplier_rank,
+                       tiene_salesperson, es_dassa, tiene_categoria_depofis,
+                       cuits_proveedores, cuits_clientes):
+    """¿Este contacto de Odoo es un cliente de DASSA, o un proveedor?
+
+    Devuelve un ResultadoAlcance. `en_alcance=False` significa "es un proveedor
+    y no hay ni un indicio de que además sea cliente": la rutina lo registra
+    como `fuera_alcance` y no lo cuenta como pendiente.
+
+    `senales` lista los indicios encontrados, para que la pantalla pueda
+    explicar la exclusión en vez de hacerla desaparecer sin más.
+    """
+    c_rank = int(customer_rank or 0)
+    s_rank = int(supplier_rank or 0)
+    cuit = cuit_digitos or ''
+
+    proveedor = []
+    if s_rank > 0 and c_rank == 0:
+        proveedor.append('Odoo lo tiene como proveedor y no como cliente '
+                         '(supplier_rank {}, customer_rank 0)'.format(s_rank))
+    if cuit and cuit in cuits_proveedores and cuit not in cuits_clientes:
+        proveedor.append('el CUIT está en DASSA.Proveed y no en DASSA.Clientes')
+
+    cliente = []
+    # La evidencia más fuerte, y la que le gana a todo: ya está en el maestro de
+    # clientes de DEPOFIS. Un contacto así no puede quedar fuera de alcance
+    # aunque Odoo lo trate como proveedor — lo que corresponde para él es la
+    # omisión "ya existe, falta vincular el depofis_code", que sí es trabajo
+    # pendiente y real.
+    if cuit and cuit in cuits_clientes:
+        cliente.append('el CUIT ya está en DASSA.Clientes')
+    if c_rank > 0:
+        cliente.append('customer_rank {} en Odoo'.format(c_rank))
+    if tiene_salesperson:
+        cliente.append('tiene Salesperson asignado')
+    if es_dassa:
+        cliente.append('está marcado como Cliente DASSA')
+    if tiene_categoria_depofis:
+        cliente.append('tiene una categoría comercial de DEPOFIS')
+
+    if proveedor and not cliente:
+        return ResultadoAlcance(
+            False,
+            'Proveedor, no cliente: {}. Los proveedores viven en DASSA.Proveed y se '
+            'administran en Odoo — quedan fuera del alcance de esta sincronización.'
+            .format(' y '.join(proveedor)),
+            proveedor)
+
+    if proveedor:
+        # Comprado y vendido a la vez: un transportista al que además se le
+        # factura depósito. Entra, pero la señal queda registrada.
+        return ResultadoAlcance(
+            True,
+            'Es también proveedor ({}), pero hay evidencia de cliente: {}.'
+            .format(proveedor[0], ' · '.join(cliente)),
+            proveedor + cliente)
+
+    return ResultadoAlcance(True, None, cliente)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  VENDEDOR — el mapeo pedido
 # ═══════════════════════════════════════════════════════════════════════════
 #

@@ -60,6 +60,19 @@ class AccesoEspejo:
             'SELECT documento FROM {}.clientes'.format(SCHEMA))
         return {solo_digitos(r[0]) for r in self.cursor.fetchall() if solo_digitos(r[0])}
 
+    def cuits_proveedores(self):
+        """Set de CUITs (sólo dígitos) cargados en Proveed.cuit.
+
+        Sirve para EXCLUIR: reconocer que un contacto de Odoo es proveedor y
+        sacarlo del análisis. Esta rutina no escribe nunca en Proveed. Ver
+        `reglas.clasificar_alcance`.
+
+        En Clientes la columna se llama `documento` y acá `cuit`; el formato es
+        el mismo y los dos sets se normalizan con `solo_digitos`.
+        """
+        self.cursor.execute('SELECT cuit FROM {}.proveed'.format(SCHEMA))
+        return {solo_digitos(r[0]) for r in self.cursor.fetchall() if solo_digitos(r[0])}
+
     def codigos_concepto(self):
         self.cursor.execute('SELECT codigo FROM {}.concepfc'.format(SCHEMA))
         return {str(r[0]).strip() for r in self.cursor.fetchall() if r[0] is not None}

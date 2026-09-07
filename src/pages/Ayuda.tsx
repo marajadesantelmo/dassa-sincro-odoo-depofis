@@ -38,6 +38,14 @@ export default function Ayuda() {
               corresponda a una categoría comercial de DEPOFIS.
             </p>
             <p className="mt-1">
+              <strong>Sólo clientes.</strong> En Odoo los proveedores viven en la misma tabla
+              que los clientes; en DEPOFIS no, van a <code className="font-mono">DASSA.Proveed</code>,
+              que esta rutina no toca — ese maestro se administra en Odoo y no necesita estar
+              espejado. Los contactos que son proveedores y no tienen ningún indicio de ser
+              también clientes quedan <strong>fuera de alcance</strong> y no se cuentan como
+              pendientes. Se pueden ver igual, con el filtro <em>Proveedores</em>.
+            </p>
+            <p className="mt-1">
               El <strong>vendedor</strong> se arma con dos campos de Odoo: el{' '}
               <em>Salesperson</em> y el check <em>Cliente DASSA</em> de la pestaña DEPOFIS.
               El detalle está en la pantalla <strong>Vendedores</strong>.
@@ -60,6 +68,7 @@ export default function Ayuda() {
           <Fila que="ALTA" dice="Falta en DEPOFIS y hay datos suficientes para crearlo. En simulación es lo que se crearía; en aplicación, lo que se creó." />
           <Fila que="OMITIDO" dice="No corresponde crearlo. El motivo dice por qué: el CUIT ya existe, le falta la categoría, el código ya está en Concepfc." />
           <Fila que="ERROR" dice="Se intentó el alta y DEPOFIS la rechazó. Sólo aparece en corridas de aplicación." />
+          <Fila que="PROVEEDOR" dice="No es un cliente: es un proveedor, y los proveedores no se sincronizan. No es trabajo pendiente. Aparece sólo con el filtro Proveedores, para poder revisar el criterio." />
           <Fila que="NUEVA" dice="Este registro no figuraba en la corrida anterior. Es lo que apareció desde la última vez que se miró." />
           <Fila que="⚠ Atención" dice="Alguien tiene que hacer algo antes de habilitar el alta: falta el vendedor, hay que vincular el Código DEPOFIS en Odoo, o hay un dato que se resolvió por aproximación." />
           <Fila que="sin resolver" dice="El contacto no tiene Salesperson en Odoo, así que no hay código de vendedor que mandar. Se arregla en Odoo, no acá." />

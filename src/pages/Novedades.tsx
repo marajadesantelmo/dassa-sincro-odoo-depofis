@@ -17,7 +17,7 @@ import {
   Chip, KPI, Seccion, TituloPagina, Vacio,
 } from '../components/ui';
 
-type Filtro = 'todas' | 'altas' | 'atencion' | 'nuevas' | 'omitidas' | 'errores';
+type Filtro = 'todas' | 'altas' | 'atencion' | 'nuevas' | 'omitidas' | 'errores' | 'proveedores';
 
 export default function Novedades() {
   const { me } = useOutletContext<ContextoLayout>();
@@ -61,18 +61,25 @@ export default function Novedades() {
   // El .xlsx sí lo arma el server, sin filtros: es el registro completo.
   const visibles = useMemo(() => {
     const delTipo = novedades.filter((n) => n.tipo === tipo);
+    // Los proveedores NO entran en ninguna vista salvo la suya. "Todas" quiere
+    // decir "todas las que esta rutina analiza", no "todas las filas que hay":
+    // con 62 proveedores sobre 117 contactos, incluirlos convertía la pantalla
+    // principal en una lista que nadie iba a leer.
+    const enAlcance = delTipo.filter((n) => n.accion !== 'fuera_alcance');
     switch (filtro) {
-      case 'altas': return delTipo.filter((n) => n.accion === 'alta');
-      case 'atencion': return delTipo.filter((n) => n.requiere_atencion);
-      case 'nuevas': return delTipo.filter((n) => n.es_nueva);
-      case 'omitidas': return delTipo.filter((n) => n.accion === 'omitido');
-      case 'errores': return delTipo.filter((n) => n.accion === 'error');
-      default: return delTipo;
+      case 'altas': return enAlcance.filter((n) => n.accion === 'alta');
+      case 'atencion': return enAlcance.filter((n) => n.requiere_atencion);
+      case 'nuevas': return enAlcance.filter((n) => n.es_nueva);
+      case 'omitidas': return enAlcance.filter((n) => n.accion === 'omitido');
+      case 'errores': return enAlcance.filter((n) => n.accion === 'error');
+      case 'proveedores': return delTipo.filter((n) => n.accion === 'fuera_alcance');
+      default: return enAlcance;
     }
   }, [novedades, tipo, filtro]);
 
   const cuenta = useMemo(() => {
-    const t = novedades.filter((n) => n.tipo === tipo);
+    const delTipo = novedades.filter((n) => n.tipo === tipo);
+    const t = delTipo.filter((n) => n.accion !== 'fuera_alcance');
     return {
       todas: t.length,
       altas: t.filter((n) => n.accion === 'alta').length,
@@ -80,8 +87,16 @@ export default function Novedades() {
       nuevas: t.filter((n) => n.es_nueva).length,
       omitidas: t.filter((n) => n.accion === 'omitido').length,
       errores: t.filter((n) => n.accion === 'error').length,
+      proveedores: delTipo.filter((n) => n.accion === 'fuera_alcance').length,
     };
   }, [novedades, tipo]);
+
+  // Cambiar de solapa con el filtro "Proveedores" puesto dejaría una tabla
+  // vacía sin explicación: los conceptos nunca quedan fuera de alcance.
+  function cambiarTipo(t: TipoNovedad) {
+    setTipo(t);
+    if (filtro === 'proveedores') setFiltro('todas');
+  }
 
   async function exportar() {
     if (!corrida) return;
@@ -206,7 +221,10 @@ export default function Novedades() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KPI titulo="Evaluados" valor={corrida.evaluados} sub="registros de Odoo mirados" />
+        <KPI titulo="Analizados" valor={corrida.en_alcance}
+             sub={corrida.fuera_alcance
+               ? `${corrida.fuera_alcance} proveedores excluidos`
+               : 'registros de Odoo mirados'} />
         <KPI titulo="Altas" valor={corrida.altas} acento="verde"
              sub={`${corrida.altas_clientes} clientes · ${corrida.altas_conceptos} conceptos`} />
         <KPI titulo="Omitidos" valor={corrida.omitidos} sub="ya existían o les falta un dato" />
@@ -224,18 +242,18 @@ export default function Novedades() {
       <Seccion
         titulo={
           <span className="flex items-center gap-1">
-            <button type="button" onClick={() => setTipo('cliente')}
+            <button type="button" onClick={() => cambiarTipo('cliente')}
                     className={`px-2 py-1 rounded-md text-xs font-bold ${tipo === 'cliente' ? 'bg-dassa text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>
-              Clientes ({corrida.clientes})
+              Clientes ({corrida.clientes - corrida.fuera_alcance})
             </button>
-            <button type="button" onClick={() => setTipo('concepto')}
+            <button type="button" onClick={() => cambiarTipo('concepto')}
                     className={`px-2 py-1 rounded-md text-xs font-bold ${tipo === 'concepto' ? 'bg-dassa text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>
               Conceptos ({corrida.conceptos})
             </button>
           </span>
         }
         sub={tipo === 'cliente'
-          ? 'res.partner → DASSA.Clientes · el vendedor sale de Salesperson + Cliente DASSA'
+          ? 'res.partner → DASSA.Clientes · sólo clientes: los proveedores van a DASSA.Proveed y no se sincronizan'
           : 'product.template → DASSA.Concepfc · el código es la Referencia Interna de Odoo'}
         accion={
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -247,9 +265,29 @@ export default function Novedades() {
             {cuenta.errores > 0 && (
               <Chip label="Errores" activo={filtro === 'errores'} count={cuenta.errores} onClick={() => setFiltro('errores')} acento="error" />
             )}
+            {/* Separado del resto a propósito: no es un filtro más sobre el
+                trabajo pendiente, es la puerta a lo que quedó afuera. Está para
+                poder auditar la exclusión, no para trabajar desde ahí. */}
+            {cuenta.proveedores > 0 && (
+              <>
+                <span className="text-slate-300 select-none">|</span>
+                <Chip label="Proveedores" activo={filtro === 'proveedores'} count={cuenta.proveedores}
+                      onClick={() => setFiltro('proveedores')} />
+              </>
+            )}
           </div>
         }
       >
+        {filtro === 'proveedores' && (
+          <BannerInfo>
+            <strong>Estos contactos quedaron fuera del análisis.</strong> Son proveedores: en
+            DEPOFIS viven en <code className="font-mono">DASSA.Proveed</code>, que esta rutina no
+            toca. El maestro de proveedores se administra en Odoo y no necesita estar espejado
+            en DEPOFIS. Se listan para poder revisar el filtro — si alguno de éstos es en
+            realidad un cliente, se corrige en Odoo asignándole el <em>Salesperson</em> o la
+            etiqueta de categoría comercial, y en la próxima corrida entra.
+          </BannerInfo>
+        )}
         <TablaNovedades novedades={visibles} tipo={tipo} />
       </Seccion>
     </>

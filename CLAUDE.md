@@ -26,6 +26,76 @@ Dos piezas que se hablan por HTTP, no una sola app:
 **La app no dispara la sincronización.** Es la ventana: muestra lo que la
 rutina publicó. Ver Decisiones #1.
 
+## 🎯 El alcance: clientes sí, proveedores no
+
+En Odoo clientes y proveedores conviven en `res.partner`. En DEPOFIS **no**: son
+dos tablas distintas, `DASSA.Clientes` (1369 filas) y `DASSA.Proveed` (1609).
+Esta rutina escribe únicamente en `Clientes`.
+
+**Decisión de negocio (Facu, 2026-09-07): DEPOFIS no necesita estar actualizado
+en proveedores.** Ese maestro se administra en Odoo y ahí se queda.
+
+Sin este filtro la rutina evaluaba 117 contactos, de los cuales **56 eran
+proveedores** — EDESUR, Banco Santander, Claro, Telecentro, Starlink, Exolgan,
+la Cámara de Depósitos Fiscales. Ninguno se daba de alta, pero todos figuraban
+como "omitido · requiere atención": el 48 % de la pantalla era trabajo pendiente
+que nadie iba a hacer nunca.
+
+### La regla, y por qué no es `customer_rank > 0`
+
+Filtrar por `customer_rank > 0` es la respuesta obvia y es la **equivocada**. De
+los 1951 contactos que ya están vinculados a DEPOFIS —clientes reales y
+confirmados— el **85 % tiene `customer_rank = 0`**. El rank de Odoo sube al
+facturar *en Odoo*, y DASSA factura por DEPOFIS. Como filtro positivo dejaría
+afuera a casi toda la cartera.
+
+Sirve sólo en negativo, cruzado con la evidencia del propio DEPOFIS:
+
+```
+es_proveedor       supplier_rank > 0 y customer_rank == 0
+                   ó  el CUIT está en DASSA.Proveed y no en DASSA.Clientes
+
+evidencia_cliente  el CUIT ya está en DASSA.Clientes   ← le gana a todo
+                   ó customer_rank > 0
+                   ó tiene Salesperson
+                   ó is_dassa
+                   ó tiene una etiqueta que es categoría comercial DEPOFIS
+
+se excluye  ⟺  es_proveedor  Y  ninguna evidencia_cliente
+```
+
+La asimetría es deliberada: **dejar entrar un proveedor cuesta una fila de
+ruido; dejar afuera un cliente cuesta un alta que nunca se hace.** Por eso un
+contacto del que no se sabe nada entra, y por eso estar en `DASSA.Clientes` le
+gana a cualquier señal de proveedor — ese contacto necesita la omisión
+accionable "falta vincular el `depofis_code`", que sí es trabajo real.
+
+Está en `reglas.clasificar_alcance` (módulo puro, 12 tests).
+
+### Verificación contra datos reales (2026-09-07)
+
+| control | resultado |
+|---|---|
+| Aplicada a los **1951** contactos ya vinculados a DEPOFIS | **0 excluidos** — ni un falso negativo |
+| De los 56 excluidos, cuántos tienen **las dos** señales independientes | **43** |
+| Los otros **13** | sólo el rank de Odoo (2 a 8 compras, 0 ventas), y no están ni en `Clientes` ni en `Proveed`: Pinturería Giannoni, Partes de Notebooks, Telgopor, Sweaters Argentinos… |
+| **Rescatados** por la evidencia (un filtro crudo por `supplier_rank` los perdía) | **6**: Claro, Telecentro, Depósitos Moreiro, GCR, Maqueleva, Traforlog — clientes a los que DASSA además les compra |
+
+### Cómo se ve
+
+La acción `fuera_alcance` **nunca** lleva `requiere_atencion` (hay un CHECK en la
+base que lo impide) y la pantalla la deja fuera de todas las vistas salvo el
+filtro **Proveedores**.
+
+Se publican igual, en vez de descartarse en silencio: **un filtro que no se ve
+no se puede discutir.** Si alguno de esos contactos es en realidad un cliente,
+se corrige en Odoo —asignándole el Salesperson o la etiqueta de categoría— y en
+la próxima corrida entra solo.
+
+**Los conceptos no tienen este problema**: los 8 candidatos son servicios
+propios de DASSA (`EXPORTACION MARITIMA`), todos `sale_ok`. No se les agregó
+ningún filtro porque no cambiaría una sola fila.
+
 ## ✍️ Cómo se escribe en DEPOFIS — `INSERT INTO` no sirve
 
 `DASSA.Clientes` y `DASSA.Concepfc` **no son tablas**: son vistas
@@ -146,21 +216,25 @@ Odoo de producción contra el espejo `depofis_mirror` (sincronizado ese día a l
 08:00). Es el número de verdad, con el catálogo real de `tipo_cl` y de
 `Concepfc`.
 
-### Clientes: **0 altas** de 117 candidatos
+### Clientes: **0 altas** de 61 analizados
+
+> Recontado el 2026-09-07 después del filtro de alcance. Antes decía "0 altas de
+> 117 candidatos, 65 sin categoría": de esos 65, **56 eran proveedores**.
 
 | | |
 |---|---|
-| 65 | **sin etiqueta** que corresponda a una categoría comercial de DEPOFIS |
+| 56 | **fuera de alcance**: son proveedores, no se sincronizan (ver § El alcance) |
 | 52 | **el CUIT ya está en DEPOFIS**: el cliente existe, falta vincular su Código DEPOFIS en Odoo |
+| 9 | **sin etiqueta** que corresponda a una categoría comercial de DEPOFIS |
 | **0** | altas |
 
-**No hay ni un cliente para dar de alta.** Todo el "backlog" es trabajo de datos
-en Odoo: vincular 52 códigos y clasificar 65 contactos.
+**No hay ni un cliente para dar de alta.** El backlog real es trabajo de datos
+en Odoo, y es mucho más chico de lo que parecía: vincular 52 códigos y
+clasificar **9** contactos, no 65.
 
-Y encima, de los 117, **87 no tienen Salesperson asignado**. Los 30 que sí lo
-tienen resuelven código sin problema (Enzo 12 → 5, Alexis 7 → 18 y 3 → 8,
-Guillermo 5 → 17 y 3 → 7), que es la confirmación en vivo de que el criterio de
-vendedor funciona.
+De los 61 analizados, los que tienen Salesperson resuelven código sin problema
+(Enzo 12 → 5, Alexis 7 → 18 y 3 → 8, Guillermo 5 → 17 y 3 → 7), que es la
+confirmación en vivo de que el criterio de vendedor funciona.
 
 ### Conceptos: **8 altas** de 345
 
@@ -198,11 +272,11 @@ y habría que corregirlos a mano en DEPOFIS.
 
 | Archivo | Por qué |
 |---|---|
-| `sincro/reglas.py` | **el criterio.** VENDEDOR_MAP, IVA, unidad de cálculo. Módulo puro: sin red, sin archivos, sin pyodbc. Se testea solo. |
+| `sincro/reglas.py` | **el criterio.** `clasificar_alcance` (clientes vs proveedores), VENDEDOR_MAP, IVA, unidad de cálculo. Módulo puro: sin red, sin archivos, sin pyodbc. Se testea solo (36 tests). |
 | `sincro/config.py` | **el freno.** `resolver_modo()` es lo único que puede devolver `'aplicacion'`. |
 | `sincro/depofis.py` | `AccesoLectura` vs `AccesoEscritura`. Si alguien agrega un INSERT a la clase de lectura, rompe la garantía. |
 | `sincro/odoo_client.py` | allowlist de métodos: cualquier escritura levanta `PermissionError` **antes** de tocar la red. |
-| `sincronizar.py` | la rutina. Decide `alta` / `omitido` / `error` para cada registro. |
+| `sincronizar.py` | la rutina. Decide `fuera_alcance` / `alta` / `omitido` / `error` para cada registro, **en ese orden** — el alcance se resuelve primero. |
 | `server/lib/corridas.js` | el dominio de la app. Los routers no escriben SQL. |
 | `sql/030_vistas.sql` | `es_nueva` y los conteos. La pantalla no los recalcula. |
 
@@ -284,6 +358,20 @@ pm2 restart dassa-sincro-odoo-depofis --update-env
 8. **Si la app está caída, la rutina no aborta.** Sigue, y deja el resultado en
    `salidas/corrida_<sello>.json`. La rutina existe para saber qué pasa entre
    Odoo y DEPOFIS; que la ventana esté caída no es motivo para no mirar.
+
+9. **Los proveedores se publican como `fuera_alcance`, no se descartan en
+   silencio.** Costaba 56 filas por corrida no guardarlas, y la tentación era
+   filtrarlas en el `search_read` de Odoo y listo. No: un filtro que no se ve no
+   se puede discutir. Guardadas, la pregunta "¿por qué EDESUR no aparece?" se
+   contesta abriendo el filtro **Proveedores** y leyendo el motivo de la fila,
+   en vez de leyendo el código. El costo de que no molesten lo paga un CHECK
+   (`fuera_alcance` no puede llevar `requiere_atencion`) y el default de la
+   pantalla, no el ocultamiento del dato.
+
+10. **El filtro de alcance no usa `customer_rank > 0`.** Es la respuesta obvia y
+   dejaría afuera al 85 % de la cartera real — ver § El alcance. Si alguien
+   "simplifica" la regla a eso, la rutina deja de proponer altas de clientes
+   legítimos y nadie se entera, porque el síntoma es que *no pasa nada*.
 
 ## Gotchas
 

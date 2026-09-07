@@ -125,6 +125,21 @@ class AccesoLectura:
         self.cursor.execute('SELECT documento FROM {}.Clientes'.format(BASE))
         return {solo_digitos(r[0]) for r in self.cursor.fetchall() if solo_digitos(r[0])}
 
+    def cuits_proveedores(self):
+        """Set de CUITs (sólo dígitos) cargados en Proveed.cuit.
+
+        NO es para dar de alta proveedores —esta rutina no escribe una sola fila
+        en Proveed— sino para lo contrario: reconocer que un contacto de Odoo es
+        proveedor y sacarlo del análisis. Ver `reglas.clasificar_alcance`.
+
+        Ojo con el nombre de la columna: en Clientes el CUIT se llama
+        `documento`, acá `cuit`. El formato es el mismo ('30-71112914-2') y por
+        eso los dos sets se normalizan con `solo_digitos` antes de compararse.
+        """
+        from .reglas import solo_digitos
+        self.cursor.execute('SELECT cuit FROM {}.Proveed'.format(BASE))
+        return {solo_digitos(r[0]) for r in self.cursor.fetchall() if solo_digitos(r[0])}
+
     def codigos_concepto(self):
         self.cursor.execute('SELECT codigo FROM {}.Concepfc'.format(BASE))
         return {str(r[0]).strip() for r in self.cursor.fetchall()}

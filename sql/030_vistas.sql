@@ -89,6 +89,13 @@ SELECT
   COUNT(n.id) FILTER (WHERE n.accion = 'alta' AND n.tipo = 'concepto') AS altas_conceptos,
   COUNT(n.id) FILTER (WHERE n.accion = 'omitido')                      AS omitidos,
   COUNT(n.id) FILTER (WHERE n.accion = 'error')                        AS errores,
+  -- Proveedores: no son omisiones ni trabajo pendiente. Se cuentan aparte a
+  -- propósito — sumarlos a `omitidos` haría que ese número dejara de
+  -- significar "algo que alguien tiene que resolver".
+  COUNT(n.id) FILTER (WHERE n.accion = 'fuera_alcance')                AS fuera_alcance,
+  -- Lo que la rutina realmente analizó como cliente/concepto. Es el
+  -- denominador honesto de la pantalla: `evaluados` incluye lo descartado.
+  COUNT(n.id) FILTER (WHERE n.accion <> 'fuera_alcance')               AS en_alcance,
   COUNT(n.id) FILTER (WHERE n.requiere_atencion)                       AS requieren_atencion,
   -- Clientes que se darían de alta SIN vendedor resuelto. Es el número que
   -- mide el trabajo pendiente en Odoo, y el que la pantalla pone arriba.

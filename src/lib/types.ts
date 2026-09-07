@@ -16,7 +16,10 @@ export interface Me {
 export type Modo = 'simulacion' | 'aplicacion';
 export type EstadoCorrida = 'en_curso' | 'ok' | 'con_errores' | 'fallida';
 export type TipoNovedad = 'cliente' | 'concepto';
-export type AccionNovedad = 'alta' | 'omitido' | 'error';
+/** `fuera_alcance` = es un proveedor, no un cliente. No es una omisión ni
+ *  trabajo pendiente: es un registro que esta rutina no sincroniza. Se guarda
+ *  para poder auditar el filtro, y la pantalla lo deja fuera por default. */
+export type AccionNovedad = 'alta' | 'omitido' | 'error' | 'fuera_alcance';
 
 /** Una entrada del VENDEDOR_MAP tal como la guardó la corrida. */
 export interface MapeoVendedor {
@@ -56,6 +59,12 @@ export interface Corrida {
   altas_conceptos: number;
   omitidos: number;
   errores: number;
+  /** Contactos descartados por ser proveedores. Se cuenta aparte de `omitidos`
+   *  a propósito: un proveedor no es algo pendiente de resolver. */
+  fuera_alcance: number;
+  /** `evaluados` menos los `fuera_alcance`. Es el denominador honesto: lo que
+   *  la rutina realmente analizó como cliente o concepto. */
+  en_alcance: number;
   requieren_atencion: number;
   /** Altas de cliente que quedarían con `vendedor` NULL en DEPOFIS. Es el
    *  número que mide el trabajo pendiente en Odoo. */

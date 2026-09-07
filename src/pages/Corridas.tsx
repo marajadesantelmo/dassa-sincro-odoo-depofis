@@ -48,7 +48,7 @@ export default function Corridas() {
                 <Th>Modo</Th>
                 <Th>Estado</Th>
                 <Th>Origen</Th>
-                <Th align="right">Evaluados</Th>
+                <Th align="right">Analizados</Th>
                 <Th align="right">Altas</Th>
                 <Th align="right">Omitidos</Th>
                 <Th align="right">Atención</Th>
@@ -71,7 +71,14 @@ export default function Corridas() {
                   <Td className="text-slate-500 text-[11px]">
                     {c.origen === 'cron' ? 'automática' : (c.disparada_por || c.origen)}
                   </Td>
-                  <Td align="right" className="tabular-nums">{c.evaluados}</Td>
+                  {/* `en_alcance`, no `evaluados`: los proveedores descartados no
+                      son parte de lo que la corrida analizo. */}
+                  <Td align="right" className="tabular-nums" title={c.fuera_alcance ? `${c.fuera_alcance} proveedores excluidos del analisis` : undefined}>
+                    {c.en_alcance}
+                    {c.fuera_alcance > 0 && (
+                      <span className="text-slate-400 font-normal"> +{c.fuera_alcance}</span>
+                    )}
+                  </Td>
                   <Td align="right" className="tabular-nums font-semibold text-emerald-700">{c.altas}</Td>
                   <Td align="right" className="tabular-nums text-slate-500">{c.omitidos}</Td>
                   <Td align="right" className={`tabular-nums ${c.requieren_atencion ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
