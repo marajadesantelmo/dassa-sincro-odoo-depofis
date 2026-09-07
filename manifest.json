@@ -1,0 +1,94 @@
+{
+  "$schema": "https://apps.dassa.com.ar/manifest.schema.json",
+  "schema_version": "2.0",
+  "name": "Sincro Odoo → DEPOFIS",
+  "app_key": "sincro-odoo-depofis",
+  "version": "0.1.0",
+  "type": "child_app",
+  "parent_app": "smart-dassa-apps",
+  "owner": "facundo@pymetech.com.ar",
+  "criticality": "medium",
+  "description": "Ventana a la sincronización de maestros de Odoo hacia DEPOFIS. Muestra las novedades detectadas en cada corrida — clientes y conceptos dados de alta en Odoo que faltan en DEPOFIS — con el vendedor y la condición de Cliente DASSA ya traducidos al código de DEPOFIS. Arranca en modo simulación: detecta y muestra, no escribe.",
+  "url_path": "/sincro-odoo-depofis/",
+  "port": 3038,
+  "icon": "🔄",
+  "color": "#C8202C",
+  "auth": {
+    "provider": "smart-dassa-apps",
+    "required": true,
+    "mode": "sso_ticket",
+    "session_ttl_minutes": 60
+  },
+  "stack": ["node", "express", "react", "typescript", "postgres", "python"],
+  "repo": "github.com/marajadesantelmo/dassa-sincro-odoo-depofis",
+  "vps_path": "/home/dassa/dassa4/apps/sincro-odoo-depofis",
+  "roles": [
+    {
+      "key": "sincro-admin",
+      "name": "Administrador",
+      "description": "Ve las novedades, exporta y accede a la configuración de la rutina (mapeo de vendedores, modo de corrida)."
+    },
+    {
+      "key": "sincro-lector",
+      "name": "Lector",
+      "description": "Ve las novedades de cada corrida y las exporta a Excel. Es el rol de quien revisa qué se va a dar de alta."
+    }
+  ],
+  "permissions": [
+    "sincro.ver",
+    "sincro.exportar",
+    "sincro.admin"
+  ],
+  "role_permissions": {
+    "sincro-admin": ["sincro.ver", "sincro.exportar", "sincro.admin"],
+    "sincro-lector": ["sincro.ver", "sincro.exportar"]
+  },
+  "processes": [
+    {
+      "pm2_name": "dassa-sincro-odoo-depofis",
+      "port": 3038,
+      "health": "http://127.0.0.1:3038/api/health",
+      "criticality": "medium"
+    }
+  ],
+  "public_urls": ["https://apps.dassa.com.ar/sincro-odoo-depofis/"],
+  "databases": [
+    {
+      "type": "postgres",
+      "project": "txlotccsiqaypkzobkxm",
+      "name": "smart-dassa-central",
+      "schema": "sincro_odoo_depofis",
+      "access": "read-write",
+      "purpose": "las corridas de la rutina y las novedades que detecta cada una"
+    }
+  ],
+  "integrations": [
+    {
+      "type": "odoo_xmlrpc",
+      "target": "https://gestion.dassa.com.ar",
+      "access": "read-only",
+      "purpose": "res.partner y product.template — los maestros que se comparan contra DEPOFIS"
+    },
+    {
+      "type": "sqlserver",
+      "target": "101.44.8.58:1436 · DEPOFIS.DASSA",
+      "access": "read-only mientras la rutina corra en modo simulación",
+      "purpose": "DASSA.Clientes y DASSA.Concepfc — contra qué se compara, y dónde se daría el alta"
+    },
+    {
+      "type": "service_token",
+      "header": "x-sincro-odoo-depofis-token",
+      "routes": ["/api/servicio/*"],
+      "purpose": "que sincronizar.py pueda publicar el resultado de cada corrida sin sesión SSO"
+    }
+  ],
+  "client": {
+    "name": "DASSA SA · Sistemas & AI",
+    "contact": "facundo@pymetech.com.ar"
+  },
+  "whitelist_actions": [
+    { "name": "restart", "command": "pm2 restart dassa-sincro-odoo-depofis", "max_per_hour": 3 },
+    { "name": "tail_logs", "command": "pm2 logs dassa-sincro-odoo-depofis --lines 50 --nostream", "max_per_hour": 20 }
+  ],
+  "last_updated": "2026-09-07T00:00:00Z"
+}

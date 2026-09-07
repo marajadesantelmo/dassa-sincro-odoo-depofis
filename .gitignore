@@ -1,0 +1,18 @@
+node_modules/
+dist/
+logs/
+*.log
+
+# Secretos
+.env
+.env.local
+tokens.py
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Salidas de corridas locales
+salidas/
+*.xlsx

@@ -1,0 +1,49 @@
+{
+  "name": "dassa-sincro-odoo-depofis",
+  "version": "0.1.0",
+  "description": "Sincro Odoo → DEPOFIS — app hija de Smart DASSA Apps. Muestra las novedades de cada corrida de la rutina que compara los maestros de Odoo contra DEPOFIS. Arranca en modo simulación: detecta y muestra, no escribe.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"vite\" \"node --watch server/index.js\"",
+    "build": "tsc -p tsconfig.app.json --noEmit && vite build",
+    "start": "node server/index.js",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"server/**/*.js\" --max-warnings 0",
+    "test": "node --test test/*.test.mjs",
+    "db:diag": "node scripts/diag-db.mjs"
+  },
+  "dependencies": {
+    "@dassa/apps-sdk": "file:../smart-dassa-apps/apps-sdk",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "express-rate-limit": "^8.5.1",
+    "helmet": "^8.1.0",
+    "pg": "^8.13.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.5.4",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react-swc": "^3.7.0",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.0.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.59.3",
+    "vite": "^5.4.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
