@@ -30,7 +30,7 @@ Desde el box, con la VPN levantada. Vía Management API (no hace falta psql ni u
 DSN admin):
 
 ```bash
-export SUPABASE_MGMT_TOKEN='sbp_...'        # el PAT del inventario
+export SUPABASE_MGMT_TOKEN='<el PAT sbp_ del inventario, COMPLETO>'
 python3 scripts/aplicar_sql.py              # dry-run: qué archivos y en qué orden
 python3 scripts/aplicar_sql.py --apply      # las aplica
 ```

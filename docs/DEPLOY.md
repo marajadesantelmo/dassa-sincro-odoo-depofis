@@ -59,7 +59,7 @@ Aplicá las 5 migraciones vía la Management API (no hace falta psql ni un DSN
 admin — el box tampoco tiene `jq`, por eso el aplicador es Python):
 
 ```bash
-export SUPABASE_MGMT_TOKEN='sbp_...'        # el PAT del inventario
+export SUPABASE_MGMT_TOKEN='<el PAT sbp_ del inventario, COMPLETO>'
 python3 scripts/aplicar_sql.py              # dry-run
 python3 scripts/aplicar_sql.py --apply
 ```

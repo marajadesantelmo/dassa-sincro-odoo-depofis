@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Aplica las migraciones de `sql/` vía la Management API de Supabase.
 
-    export SUPABASE_MGMT_TOKEN='sbp_...'      # el PAT del inventario
+    export SUPABASE_MGMT_TOKEN='<el PAT sbp_ del inventario, completo>'
     python3 scripts/aplicar_sql.py            # dry-run: qué archivos y en qué orden
     python3 scripts/aplicar_sql.py --apply    # las ejecuta
 
@@ -94,7 +94,17 @@ def main():
     token = os.environ.get('SUPABASE_MGMT_TOKEN', '').strip()
     if not token.startswith('sbp_'):
         print('\n✗ Falta SUPABASE_MGMT_TOKEN (el PAT sbp_ del inventario).')
-        print("  export SUPABASE_MGMT_TOKEN='sbp_...'")
+        print("  export SUPABASE_MGMT_TOKEN='<el PAT completo>'")
+        return 1
+    # El placeholder pegado tal cual. Pasaba el startswith('sbp_') y moria 30
+    # lineas mas abajo con "HTTP 401 - JWT could not be decoded", que en medio
+    # de un deploy encadenado se lee como un problema de permisos y no como
+    # "te olvidaste de reemplazar el token". Un PAT real son 40+ caracteres.
+    if len(token) < 24 or '.' in token:
+        print('\n✗ SUPABASE_MGMT_TOKEN parece un placeholder, no un PAT: {!r}'
+              .format(token[:8] + '…'))
+        print('  Un PAT de Supabase es "sbp_" seguido de ~40 caracteres.')
+        print('  Esta en el inventario del ecosistema; no lo tipees de memoria.')
         return 1
 
     print()
