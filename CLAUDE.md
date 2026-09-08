@@ -35,28 +35,39 @@ Esta rutina escribe únicamente en `Clientes`.
 **Decisión de negocio (Facu, 2026-09-07): DEPOFIS no necesita estar actualizado
 en proveedores.** Ese maestro se administra en Odoo y ahí se queda.
 
-Sin este filtro la rutina evaluaba 117 contactos, de los cuales **56 eran
-proveedores** — EDESUR, Banco Santander, Claro, Telecentro, Starlink, Exolgan,
-la Cámara de Depósitos Fiscales. Ninguno se daba de alta, pero todos figuraban
-como "omitido · requiere atención": el 48 % de la pantalla era trabajo pendiente
-que nadie iba a hacer nunca.
+Sin este filtro la rutina evaluaba 118 contactos, de los cuales **61 son
+proveedores** — EDESUR, Banco Santander, Starlink, Exolgan, Terminal 4, Nuevo
+Estibaje, la Cámara de Depósitos Fiscales. Ninguno se daba de alta, pero todos
+figuraban como "omitido · requiere atención": el 52 % de la pantalla era trabajo
+pendiente que nadie iba a hacer nunca.
 
-### La regla, y por qué no es `customer_rank > 0`
+### La regla: comprobantes, no `customer_rank` / `supplier_rank`
 
-Filtrar por `customer_rank > 0` es la respuesta obvia y es la **equivocada**. De
-los 1951 contactos que ya están vinculados a DEPOFIS —clientes reales y
-confirmados— el **85 % tiene `customer_rank = 0`**. El rank de Odoo sube al
-facturar *en Odoo*, y DASSA factura por DEPOFIS. Como filtro positivo dejaría
-afuera a casi toda la cartera.
+Los rank de Odoo son la respuesta obvia y son la **equivocada por los dos
+lados**:
 
-Sirve sólo en negativo, cruzado con la evidencia del propio DEPOFIS:
+- **En positivo no sirven.** De los 2187 contactos ya vinculados a DEPOFIS
+  —clientes reales y confirmados— el **85 % tiene `customer_rank = 0`**. El rank
+  sube al facturar *en Odoo*, y DASSA factura por DEPOFIS.
+- **En negativo tampoco.** `customer_rank > 0` no significa que se le haya
+  vendido algo: de los 118 candidatos, **16 tienen `customer_rank > 0` y cero
+  facturas de venta**. Ese rank fantasma les alcanzaba para rescatarse del
+  filtro. Fue el agujero de la primera versión (2026-09-07) y por él volvían a
+  la pantalla **EL VISOR SRL** (rank 2, 0 ventas, 5 compras), **NUEVO ESTIBAJE**
+  (rank 2, 0 ventas, 9 compras), **TERMINAL 4** y **LOMAS METAL**.
+
+Lo verificable son los comprobantes: `account.move` por partner,
+`out_invoice`+`out_refund` contra `in_invoice`+`in_refund`, sin las anuladas.
+Medido sobre los mismos 118, los rank **nunca se quedan cortos** (0 casos con
+facturas de venta y `customer_rank = 0`): las facturas son el subconjunto
+verdadero y el rank es ese subconjunto más ruido.
 
 ```
-es_proveedor       supplier_rank > 0 y customer_rank == 0
+es_proveedor       tiene facturas de COMPRA y ninguna de venta
                    ó  el CUIT está en DASSA.Proveed y no en DASSA.Clientes
 
 evidencia_cliente  el CUIT ya está en DASSA.Clientes   ← le gana a todo
-                   ó customer_rank > 0
+                   ó tiene facturas de VENTA
                    ó tiene Salesperson
                    ó is_dassa
                    ó tiene una etiqueta que es categoría comercial DEPOFIS
@@ -70,16 +81,19 @@ contacto del que no se sabe nada entra, y por eso estar en `DASSA.Clientes` le
 gana a cualquier señal de proveedor — ese contacto necesita la omisión
 accionable "falta vincular el `depofis_code`", que sí es trabajo real.
 
-Está en `reglas.clasificar_alcance` (módulo puro, 12 tests).
+Está en `reglas.clasificar_alcance` (módulo puro, 13 tests). Los conteos los
+trae `sincronizar.contar_facturas`: dos `read_group` por lotes de 500, no un
+`search_count` por contacto.
 
-### Verificación contra datos reales (2026-09-07)
+### Verificación contra datos reales (2026-09-08)
 
 | control | resultado |
 |---|---|
-| Aplicada a los **1951** contactos ya vinculados a DEPOFIS | **0 excluidos** — ni un falso negativo |
-| De los 56 excluidos, cuántos tienen **las dos** señales independientes | **43** |
-| Los otros **13** | sólo el rank de Odoo (2 a 8 compras, 0 ventas), y no están ni en `Clientes` ni en `Proveed`: Pinturería Giannoni, Partes de Notebooks, Telgopor, Sweaters Argentinos… |
-| **Rescatados** por la evidencia (un filtro crudo por `supplier_rank` los perdía) | **6**: Claro, Telecentro, Depósitos Moreiro, GCR, Maqueleva, Traforlog — clientes a los que DASSA además les compra |
+| Aplicada a los **2187** contactos ya vinculados a DEPOFIS | **0 excluidos** — ni un falso negativo |
+| De los 118 candidatos, cuántos quedan fuera | **61** |
+| De los **56** que están en `DASSA.Proveed`, cuántos tienen alguna factura de venta | **0** — las dos señales coinciden siempre que ambas se pronuncian |
+| Excluidos sólo por comprobantes (compras > 0, ventas = 0, no están en `Proveed`) | **15**: Pinturería Giannoni, Partes de Notebooks, Telgopor, Sweaters Argentinos… |
+| **Rescatados** por la evidencia (un filtro crudo por proveedor los perdía) | **6**: Claro, Telecentro, Depósitos Moreiro, GCR, Maqueleva, Traforlog — clientes a los que DASSA además les compra |
 
 ### Cómo se ve
 
@@ -210,29 +224,41 @@ DEPOFIS *no* significa "sin vendedor": es un código real con 523 clientes
 asignados, así que un cero se leería como un dato bueno. La fila sale marcada
 "requiere atención" y la pantalla la cuenta aparte.
 
-## El informe de estado (primera corrida real · 2026-09-07)
+## El informe de estado (corrida del 2026-09-08)
 
 Odoo de producción contra el espejo `depofis_mirror` (sincronizado ese día a las
-08:00). Es el número de verdad, con el catálogo real de `tipo_cl` y de
+06:00). Es el número de verdad, con el catálogo real de `tipo_cl` y de
 `Concepfc`.
 
-### Clientes: **0 altas** de 61 analizados
+### Clientes: **0 altas** de 57 analizados
 
-> Recontado el 2026-09-07 después del filtro de alcance. Antes decía "0 altas de
-> 117 candidatos, 65 sin categoría": de esos 65, **56 eran proveedores**.
+> Recontado el 2026-09-08, después de reemplazar los rank por los comprobantes.
+> Antes del filtro de alcance el informe decía "0 altas de 117 candidatos, 65
+> sin categoría", y con la primera versión del filtro "9 sin categoría". De esos
+> 9, **4 eran proveedores** que el `customer_rank` fantasma dejaba pasar.
 
 | | |
 |---|---|
-| 56 | **fuera de alcance**: son proveedores, no se sincronizan (ver § El alcance) |
+| 61 | **fuera de alcance**: son proveedores, no se sincronizan (ver § El alcance) |
 | 52 | **el CUIT ya está en DEPOFIS**: el cliente existe, falta vincular su Código DEPOFIS en Odoo |
-| 9 | **sin etiqueta** que corresponda a una categoría comercial de DEPOFIS |
+| 5 | **sin etiqueta** que corresponda a una categoría comercial de DEPOFIS |
 | **0** | altas |
 
 **No hay ni un cliente para dar de alta.** El backlog real es trabajo de datos
 en Odoo, y es mucho más chico de lo que parecía: vincular 52 códigos y
-clasificar **9** contactos, no 65.
+clasificar **5** contactos, no 65.
 
-De los 61 analizados, los que tienen Salesperson resuelven código sin problema
+Los 5 sin categoría son clientes de verdad, cada uno con su prueba:
+
+| contacto | por qué es cliente |
+|---|---|
+| Plaquimet Sa | 5 facturas de venta, 0 de compra |
+| Fernando Javier Moncho Lobo | 3 facturas de venta, 0 de compra |
+| Higa, Hector Horacio | 3 facturas de venta, 0 de compra |
+| TORRES E HIJOS SA | Salesperson Guillermo Jorge + `is_dassa` |
+| Turismo Argentino S.A.S. | sin facturas de ningún lado y fuera de `Proveed`: no hay evidencia de proveedor, así que entra por la asimetría |
+
+De los 57 analizados, los que tienen Salesperson resuelven código sin problema
 (Enzo 12 → 5, Alexis 7 → 18 y 3 → 8, Guillermo 5 → 17 y 3 → 7), que es la
 confirmación en vivo de que el criterio de vendedor funciona.
 
@@ -272,7 +298,7 @@ y habría que corregirlos a mano en DEPOFIS.
 
 | Archivo | Por qué |
 |---|---|
-| `sincro/reglas.py` | **el criterio.** `clasificar_alcance` (clientes vs proveedores), VENDEDOR_MAP, IVA, unidad de cálculo. Módulo puro: sin red, sin archivos, sin pyodbc. Se testea solo (36 tests). |
+| `sincro/reglas.py` | **el criterio.** `clasificar_alcance` (clientes vs proveedores), VENDEDOR_MAP, IVA, unidad de cálculo. Módulo puro: sin red, sin archivos, sin pyodbc. Se testea solo (37 tests). |
 | `sincro/config.py` | **el freno.** `resolver_modo()` es lo único que puede devolver `'aplicacion'`. |
 | `sincro/depofis.py` | `AccesoLectura` vs `AccesoEscritura`. Si alguien agrega un INSERT a la clase de lectura, rompe la garantía. |
 | `sincro/odoo_client.py` | allowlist de métodos: cualquier escritura levanta `PermissionError` **antes** de tocar la red. |
@@ -288,7 +314,7 @@ python sincronizar.py                     # SIMULACIÓN desde el ESPEJO — el d
 python sincronizar.py --solo clientes
 python sincronizar.py --fuente origen     # simular leyendo el SQL Server (necesita pyodbc)
 python sincronizar.py --sin-publicar      # sólo el .json local, en salidas/
-python -m unittest sincro.test_reglas -v  # 24 tests, sin credenciales
+python -m unittest sincro.test_reglas -v  # 37 tests, sin credenciales
 
 # simular necesita psycopg2 (espejo). Sólo aplicar necesita pyodbc:
 #   pip install --user pyodbc   ← no hace falta sudo en el box
@@ -368,12 +394,13 @@ pm2 restart dassa-sincro-odoo-depofis --update-env
    (`fuera_alcance` no puede llevar `requiere_atencion`) y el default de la
    pantalla, no el ocultamiento del dato.
 
-10. **El filtro de alcance no usa `customer_rank > 0`.** Es la respuesta obvia y
-   dejaría afuera al 85 % de la cartera real — ver § El alcance. Si alguien
-   "simplifica" la regla a eso, la rutina deja de proponer altas de clientes
-   legítimos y nadie se entera, porque el síntoma es que *no pasa nada*.
-
-## Gotchas
+10. **El filtro de alcance mira comprobantes, no `customer_rank`.** El rank es
+    la respuesta obvia y falla por los dos lados: el 85 % de los clientes reales
+    tiene `customer_rank = 0`, y 16 de los 118 candidatos tienen rank > 0 con
+    cero facturas de venta. Con el rank como señal de rescate se colaban cuatro
+    proveedores (EL VISOR, LOMAS METAL, NUEVO ESTIBAJE, TERMINAL 4). Las
+    facturas son el subconjunto verdadero del rank: cuestan dos `read_group` y
+    no mienten.
 
 - **`fields_get('product.template')` se consulta para ver si existe
   `depofis_calcula`**, que hoy NO existe. Si algún día lo agregan, el dato del

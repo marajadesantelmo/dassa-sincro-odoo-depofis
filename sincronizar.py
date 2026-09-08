@@ -123,9 +123,40 @@ def titulo(t):
 
 CAMPOS_PARTNER = [
     'id', 'name', 'vat', 'category_id', 'user_id', 'is_dassa',
-    'customer_rank', 'supplier_rank',
     'l10n_ar_afip_responsibility_type_id', 'street', 'city', 'zip', 'phone', 'email',
 ]
+
+# Los comprobantes que deciden si un contacto es cliente o proveedor. No se usan
+# `customer_rank`/`supplier_rank`: sobran por los dos lados, y ese ruido fue lo
+# que dejo pasar a EL VISOR, LOMAS METAL, NUEVO ESTIBAJE y TERMINAL 4 en la
+# primera version del filtro. Ver reglas.clasificar_alcance.
+FACTURA_VENTA = ['out_invoice', 'out_refund']
+FACTURA_COMPRA = ['in_invoice', 'in_refund']
+
+# Odoo arma un IN con toda la lista de ids y el server tiene limite de tamano de
+# request. 500 por vuelta es lo que ya usa `dassa-conciliacion-comprobantes`.
+LOTE_IDS = 500
+
+
+def contar_facturas(partner_ids, move_types):
+    """{partner_id: cantidad de comprobantes} para los tipos pedidos.
+
+    Un `read_group` por lote en vez de un `search_count` por contacto: son 118
+    candidatos y seria un round-trip XML-RPC por cabeza. Las anuladas no
+    cuentan: una factura cancelada no prueba ninguna relacion comercial.
+    """
+    conteo = {}
+    for i in range(0, len(partner_ids), LOTE_IDS):
+        grupos = odoo.read_group(
+            'account.move',
+            [('partner_id', 'in', partner_ids[i:i + LOTE_IDS]),
+             ('move_type', 'in', move_types),
+             ('state', '!=', 'cancel')],
+            fields=['partner_id'], groupby=['partner_id'])
+        for g in grupos:
+            if g.get('partner_id'):
+                conteo[g['partner_id'][0]] = g['partner_id_count']
+    return conteo
 
 
 def procesar_clientes(acceso, modo, pub, ahora):
@@ -158,7 +189,15 @@ def procesar_clientes(acceso, modo, pub, ahora):
         fields=CAMPOS_PARTNER,
         order='name',
     )
-    log('\n{} empresa(s) en Odoo con CUIT y sin depofis_code.\n'.format(len(candidatos)))
+    log('\n{} empresa(s) en Odoo con CUIT y sin depofis_code.'.format(len(candidatos)))
+
+    # El alcance se decide con comprobantes reales, asi que se traen antes del
+    # bucle: dos read_group para los 118, en vez de 236 search_count.
+    ids_candidatos = [p['id'] for p in candidatos]
+    ventas = contar_facturas(ids_candidatos, FACTURA_VENTA)
+    compras = contar_facturas(ids_candidatos, FACTURA_COMPRA)
+    log('Comprobantes en Odoo: {} con facturas de venta, {} con facturas de compra.\n'
+        .format(len(ventas), len(compras)))
 
     conteo = {'alta': 0, 'omitido': 0, 'error': 0, 'sin_vendedor': 0, 'fuera_alcance': 0}
 
@@ -190,7 +229,7 @@ def procesar_clientes(acceso, modo, pub, ahora):
         categoria, categoria_ambigua = reglas.resolver_categoria(p['category_id'], categoria_por_id)
         alcance = reglas.clasificar_alcance(
             cuit_digitos,
-            p.get('customer_rank'), p.get('supplier_rank'),
+            ventas.get(p['id'], 0), compras.get(p['id'], 0),
             bool(p['user_id']), bool(p['is_dassa']), bool(categoria),
             cuits_proveedores, cuits,
         )

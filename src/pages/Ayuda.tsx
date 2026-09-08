@@ -41,9 +41,13 @@ export default function Ayuda() {
               <strong>Sólo clientes.</strong> En Odoo los proveedores viven en la misma tabla
               que los clientes; en DEPOFIS no, van a <code className="font-mono">DASSA.Proveed</code>,
               que esta rutina no toca — ese maestro se administra en Odoo y no necesita estar
-              espejado. Los contactos que son proveedores y no tienen ningún indicio de ser
-              también clientes quedan <strong>fuera de alcance</strong> y no se cuentan como
-              pendientes. Se pueden ver igual, con el filtro <em>Proveedores</em>.
+              espejado. Un contacto queda <strong>fuera de alcance</strong> cuando hay
+              evidencia de que es proveedor —facturas de compra y ninguna de venta, o el CUIT
+              en <code className="font-mono">DASSA.Proveed</code>— y ninguna de que sea
+              cliente: estar ya en <code className="font-mono">DASSA.Clientes</code>, tener
+              facturas de venta, un <em>Salesperson</em>, el check <em>Cliente DASSA</em> o una
+              categoría comercial. No se cuentan como pendientes, pero se pueden ver con el
+              filtro <em>Proveedores</em> — cada fila explica por qué quedó afuera.
             </p>
             <p className="mt-1">
               El <strong>vendedor</strong> se arma con dos campos de Odoo: el{' '}

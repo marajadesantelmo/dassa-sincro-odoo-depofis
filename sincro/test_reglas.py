@@ -158,50 +158,56 @@ class TestAlcance(unittest.TestCase):
     CLI = {'30711129142'}       # un cliente, en DASSA.Clientes
 
     def clasificar(self, **kw):
-        args = dict(cuit_digitos='30999999997', customer_rank=0, supplier_rank=0,
+        args = dict(cuit_digitos='30999999997', facturas_venta=0, facturas_compra=0,
                     tiene_salesperson=False, es_dassa=False, tiene_categoria_depofis=False)
         args.update(kw)
         return reglas.clasificar_alcance(
-            args['cuit_digitos'], args['customer_rank'], args['supplier_rank'],
+            args['cuit_digitos'], args['facturas_venta'], args['facturas_compra'],
             args['tiene_salesperson'], args['es_dassa'], args['tiene_categoria_depofis'],
             self.PROV, self.CLI)
 
     # -- se excluye --------------------------------------------------------
-    def test_proveedor_por_rank_queda_fuera(self):
-        r = self.clasificar(supplier_rank=3)
+    def test_proveedor_por_facturas_de_compra_queda_fuera(self):
+        r = self.clasificar(facturas_compra=3)
         self.assertFalse(r.en_alcance)
-        self.assertIn('supplier_rank', r.motivo)
+        self.assertIn('factura(s) de compra', r.motivo)
 
     def test_proveedor_por_estar_en_proveed_queda_fuera(self):
         r = self.clasificar(cuit_digitos='30655116512')
         self.assertFalse(r.en_alcance)
         self.assertIn('DASSA.Proveed', r.motivo)
 
+    def test_en_proveed_y_sin_ventas_queda_fuera(self):
+        """Los 4 que la version por `customer_rank` dejaba pasar: EL VISOR,
+        LOMAS METAL, NUEVO ESTIBAJE y TERMINAL 4. Estan en DASSA.Proveed, tienen
+        compras y CERO ventas — el rank fantasma ya no los rescata."""
+        r = self.clasificar(cuit_digitos='30655116512', facturas_compra=5)
+        self.assertFalse(r.en_alcance)
+
     # -- NO se excluye: la evidencia de cliente gana ------------------------
-    def test_customer_rank_lo_rescata(self):
-        """El caso de los 4 que un filtro crudo por supplier_rank habria perdido."""
-        self.assertTrue(self.clasificar(supplier_rank=3, customer_rank=1).en_alcance)
+    def test_facturas_de_venta_lo_rescatan(self):
+        self.assertTrue(self.clasificar(facturas_compra=3, facturas_venta=1).en_alcance)
 
     def test_salesperson_lo_rescata(self):
-        self.assertTrue(self.clasificar(supplier_rank=3, tiene_salesperson=True).en_alcance)
+        self.assertTrue(self.clasificar(facturas_compra=3, tiene_salesperson=True).en_alcance)
 
     def test_is_dassa_lo_rescata(self):
-        self.assertTrue(self.clasificar(supplier_rank=3, es_dassa=True).en_alcance)
+        self.assertTrue(self.clasificar(facturas_compra=3, es_dassa=True).en_alcance)
 
     def test_categoria_depofis_lo_rescata(self):
-        self.assertTrue(self.clasificar(supplier_rank=3, tiene_categoria_depofis=True).en_alcance)
+        self.assertTrue(self.clasificar(facturas_compra=3, tiene_categoria_depofis=True).en_alcance)
 
     def test_estar_en_clientes_le_gana_a_todo(self):
         """Si ya esta en DASSA.Clientes es un cliente, aunque Odoo lo trate de
         proveedor. Lo que corresponde es la omision "falta vincular el
         depofis_code", que si es trabajo pendiente."""
-        r = self.clasificar(cuit_digitos='30711129142', supplier_rank=9)
+        r = self.clasificar(cuit_digitos='30711129142', facturas_compra=9)
         self.assertTrue(r.en_alcance)
         self.assertIn('DASSA.Clientes', r.motivo)
 
     def test_ambos_deja_constancia(self):
         """Comprado y vendido a la vez: entra, pero la fila lo dice."""
-        r = self.clasificar(supplier_rank=3, tiene_salesperson=True)
+        r = self.clasificar(facturas_compra=3, tiene_salesperson=True)
         self.assertTrue(r.en_alcance)
         self.assertIsNotNone(r.motivo)
 
@@ -214,7 +220,9 @@ class TestAlcance(unittest.TestCase):
     def test_sin_ninguna_senal_entra(self):
         """Un contacto del que no se sabe nada NO es un proveedor. La asimetria
         es deliberada: dejar entrar un proveedor cuesta una fila de ruido,
-        dejar afuera un cliente cuesta un alta que nunca se hace."""
+        dejar afuera un cliente cuesta un alta que nunca se hace.
+        Es el caso de TORRES E HIJOS y Turismo Argentino: 0 facturas de los dos
+        lados y ni rastro en Proveed."""
         r = self.clasificar()
         self.assertTrue(r.en_alcance)
         self.assertIsNone(r.motivo)
@@ -223,8 +231,8 @@ class TestAlcance(unittest.TestCase):
         self.assertTrue(self.clasificar(cuit_digitos='').en_alcance)
         self.assertTrue(self.clasificar(cuit_digitos=None).en_alcance)
 
-    def test_ranks_none_no_explotan(self):
-        self.assertTrue(self.clasificar(customer_rank=None, supplier_rank=None).en_alcance)
+    def test_conteos_none_no_explotan(self):
+        self.assertTrue(self.clasificar(facturas_venta=None, facturas_compra=None).en_alcance)
 
 
 if __name__ == '__main__':

@@ -20,44 +20,64 @@ import re
 # **DEPOFIS no necesita estar actualizado en proveedores**: ese maestro se
 # administra en Odoo y ahí se queda.
 #
-# Sin este filtro la rutina evaluaba 117 contactos, de los cuales 62 eran
+# Sin este filtro la rutina evaluaba 118 contactos, de los cuales 61 eran
 # proveedores puros — EDESUR, Banco Santander, Claro, Telecentro, Starlink,
 # Exolgan, la Cámara de Depósitos Fiscales. Ninguno se daba de alta (les falta
 # la categoría comercial), pero todos aparecían en la pantalla como "omitido ·
 # requiere atención", o sea como trabajo pendiente que nadie iba a hacer nunca.
-# Un informe donde el 53 % de las filas es ruido entrena a no leerlo.
+# Un informe donde el 51 % de las filas es ruido entrena a no leerlo.
 #
-# POR QUÉ NO ALCANZA `customer_rank > 0`
-# ──────────────────────────────────────
-# Es la respuesta obvia y es la equivocada. De los 1951 contactos que YA están
-# vinculados a DEPOFIS —o sea, clientes reales y confirmados— el **85 % tiene
-# customer_rank = 0**. El rank de Odoo se incrementa al facturar en Odoo, y
-# DASSA factura por DEPOFIS. Usarlo como filtro positivo dejaría afuera a la
-# mayoría de la cartera.
+# LAS SEÑALES SON FACTURAS, NO `customer_rank` / `supplier_rank`
+# ──────────────────────────────────────────────────────────────
+# Los rank de Odoo son la respuesta obvia y son la equivocada, por los dos
+# lados:
 #
-# Sirve sólo en NEGATIVO, y combinado con la evidencia del propio DEPOFIS:
+#   · En POSITIVO no sirven: de los 2187 contactos ya vinculados a DEPOFIS
+#     —clientes reales y confirmados— el 85 % tiene customer_rank = 0. El rank
+#     se incrementa al facturar EN ODOO, y DASSA factura por DEPOFIS.
 #
-#   es_proveedor        supplier_rank > 0 y customer_rank == 0
+#   · En NEGATIVO tampoco: `customer_rank > 0` no significa que se le haya
+#     vendido algo. Medido sobre los 118 candidatos, 16 tienen customer_rank > 0
+#     y CERO facturas de venta — entre ellos EL VISOR SRL (rank 2, 0 ventas,
+#     5 compras) y NUEVO ESTIBAJE (rank 2, 0 ventas, 9 compras). Ese rank
+#     fantasma les alcanzaba para "rescatarse" del filtro y volver a la
+#     pantalla como omisiones pendientes. Era el agujero de la primera versión.
+#
+# Lo que sí es verdad verificable son los comprobantes: `account.move` por
+# partner, `out_invoice`+`out_refund` contra `in_invoice`+`in_refund`. Medido
+# sobre los mismos 118: los rank nunca se quedan cortos (0 casos con facturas
+# de venta y customer_rank = 0), sólo sobran. O sea que las facturas son el
+# subconjunto verdadero y el rank es ese subconjunto más ruido.
+#
+#   es_proveedor        tiene facturas de COMPRA y ninguna de venta
 #                       ó el CUIT está en DASSA.Proveed y no en DASSA.Clientes
 #
-#   evidencia_cliente   customer_rank > 0  ·  tiene Salesperson  ·  is_dassa
-#                       ·  tiene una etiqueta que es categoría comercial DEPOFIS
+#   evidencia_cliente   el CUIT ya está en DASSA.Clientes  ·  tiene facturas de
+#                       VENTA  ·  tiene Salesperson  ·  is_dassa  ·  tiene una
+#                       etiqueta que es categoría comercial DEPOFIS
 #
 # Se excluye sólo cuando hay evidencia de proveedor Y ninguna de cliente. La
 # asimetría es a propósito: dejar entrar un proveedor cuesta una fila de ruido,
 # dejar afuera un cliente cuesta un alta que nunca se hace.
 #
-# VERIFICADO (2026-09-07): aplicada a los 1951 contactos ya vinculados a DEPOFIS,
-# la regla **no excluye ninguno** (0 falsos negativos). Sobre los 117 candidatos
-# excluye 62 y rescata 4 que el filtro crudo por `supplier_rank` habría perdido.
+# VERIFICADO (2026-09-08): aplicada a los 2187 contactos ya vinculados a
+# DEPOFIS, la regla **no excluye ninguno** (0 falsos negativos). Sobre los 118
+# candidatos excluye 61 y rescata 6 que un filtro crudo por proveedor habría
+# perdido — Claro, Telecentro, Depósitos Moreiro, GCR, Maqueleva y Traforlog,
+# los seis ya presentes en DASSA.Clientes. De los 56 candidatos que están en
+# DASSA.Proveed, ninguno tiene una sola factura de venta: las dos señales de
+# proveedor coinciden en todos los casos en que ambas se pronuncian.
 
 ResultadoAlcance = namedtuple('ResultadoAlcance', ['en_alcance', 'motivo', 'senales'])
 
 
-def clasificar_alcance(cuit_digitos, customer_rank, supplier_rank,
+def clasificar_alcance(cuit_digitos, facturas_venta, facturas_compra,
                        tiene_salesperson, es_dassa, tiene_categoria_depofis,
                        cuits_proveedores, cuits_clientes):
     """¿Este contacto de Odoo es un cliente de DASSA, o un proveedor?
+
+    `facturas_venta` / `facturas_compra` son la CANTIDAD de comprobantes de
+    cada lado en Odoo (ver `sincronizar.py:contar_facturas`), no los rank.
 
     Devuelve un ResultadoAlcance. `en_alcance=False` significa "es un proveedor
     y no hay ni un indicio de que además sea cliente": la rutina lo registra
@@ -66,14 +86,14 @@ def clasificar_alcance(cuit_digitos, customer_rank, supplier_rank,
     `senales` lista los indicios encontrados, para que la pantalla pueda
     explicar la exclusión en vez de hacerla desaparecer sin más.
     """
-    c_rank = int(customer_rank or 0)
-    s_rank = int(supplier_rank or 0)
+    ventas = int(facturas_venta or 0)
+    compras = int(facturas_compra or 0)
     cuit = cuit_digitos or ''
 
     proveedor = []
-    if s_rank > 0 and c_rank == 0:
-        proveedor.append('Odoo lo tiene como proveedor y no como cliente '
-                         '(supplier_rank {}, customer_rank 0)'.format(s_rank))
+    if compras > 0 and ventas == 0:
+        proveedor.append('en Odoo tiene {} factura(s) de compra y ninguna de venta'
+                         .format(compras))
     if cuit and cuit in cuits_proveedores and cuit not in cuits_clientes:
         proveedor.append('el CUIT está en DASSA.Proveed y no en DASSA.Clientes')
 
@@ -85,8 +105,8 @@ def clasificar_alcance(cuit_digitos, customer_rank, supplier_rank,
     # pendiente y real.
     if cuit and cuit in cuits_clientes:
         cliente.append('el CUIT ya está en DASSA.Clientes')
-    if c_rank > 0:
-        cliente.append('customer_rank {} en Odoo'.format(c_rank))
+    if ventas > 0:
+        cliente.append('tiene {} factura(s) de venta en Odoo'.format(ventas))
     if tiene_salesperson:
         cliente.append('tiene Salesperson asignado')
     if es_dassa:
