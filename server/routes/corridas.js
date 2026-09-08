@@ -19,7 +19,8 @@ router.use(requirePermission('sincro.ver'));
 /** Los filtros de la tabla, tal como llegan del querystring. */
 function filtrosDe(req) {
   const tipo = req.query.tipo === 'cliente' || req.query.tipo === 'concepto' ? req.query.tipo : null;
-  const accion = ['alta', 'omitido', 'error'].includes(req.query.accion) ? req.query.accion : null;
+  const accion = ['alta', 'omitido', 'error', 'fuera_alcance'].includes(req.query.accion)
+    ? req.query.accion : null;
   return {
     tipo,
     accion,

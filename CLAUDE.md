@@ -441,6 +441,32 @@ pm2 restart dassa-sincro-odoo-depofis --update-env
     primera se puede auditar: la pregunta "¿por qué no está 30055-30?" se
     contesta abriendo un filtro, no leyendo el código.
 
+### 🩹 El bug que dejó una corrida colgada (2026-09-08)
+
+La acción `fuera_alcance` se agregó en tres lugares —el CHECK de la tabla, la
+rutina y la pantalla— y faltó el cuarto: **`ACCIONES` en `server/lib/corridas.js`**,
+el validador de `/api/servicio/corridas/:id/novedades`. El lote entero rebotaba
+con `HTTP 400 accion debe ser: alta | omitido | error`.
+
+Dos síntomas encadenados, y el segundo es el que importa:
+
+1. La app seguía mostrando la corrida vieja, porque las novedades nunca entraban.
+2. **La corrida quedaba `en_curso` para siempre.** `enviar_pendientes` ponía
+   `activo = False` y `cerrar` sólo cerraba `if self.activo` — así que una
+   corrida que se abría bien y fallaba al publicar no se cerraba nunca. Nadie
+   iba a cerrarla después: la rutina ya había terminado.
+
+Arreglado en `publicar.py`: una corrida que se abrió **siempre** se cierra, y si
+el envío falló se cierra como `fallida` con el motivo. No con el estado real, a
+propósito — en la base quedó incompleta, y `v_corrida_anterior` excluye las
+fallidas: usar una corrida a medio publicar como referencia haría que en la
+siguiente todo apareciera marcado como NUEVO.
+
+**Si mañana se agrega otra acción**, los cuatro lugares son: `sql/021_fuera_alcance.sql`
+(el CHECK), `sincronizar.py`, `server/lib/corridas.js` (`ACCIONES`) y
+`src/lib/types.ts` (`AccionNovedad`). El quinto opcional es el filtro por
+querystring en `server/routes/corridas.js`.
+
 - **`fields_get('product.template')` se consulta para ver si existe
   `depofis_calcula`**, que hoy NO existe. Si algún día lo agregan, el dato del
   sistema le gana a la derivación por nombre sin tocar código. Pedir un campo

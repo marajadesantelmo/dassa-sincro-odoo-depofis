@@ -60,6 +60,9 @@ class Publicador:
         self.activo = bool(self.token)
         self.salida_local = salida_local
         self.novedades = []
+        # Si el envío de novedades falla, la corrida quedó abierta y a medio
+        # llenar en la base. Se recuerda para cerrarla igual: ver `cerrar`.
+        self.error_envio = None
         if not self.activo:
             print('[publicar] ⚠ SINCRO_ODOO_DEPOFIS_SERVICE_TOKEN no configurado: '
                   'la corrida NO se va a publicar en la app.')
@@ -94,18 +97,37 @@ class Publicador:
                 print('[publicar]   lote de {} novedades enviado'.format(len(lote)))
             except ErrorPublicacion as e:
                 self.activo = False
+                self.error_envio = str(e)
                 print('[publicar] ⚠ falló el envío de un lote: {}'.format(e))
                 return
 
     def cerrar(self, estado, totales, error=None):
         self.enviar_pendientes()
-        if self.activo and self.corrida_id:
+
+        # Una corrida que se abrió SIEMPRE se cierra, aunque el envío de
+        # novedades haya fallado. Dejarla `en_curso` es peor que marcarla
+        # fallida: queda en el historial como si todavía estuviera corriendo, y
+        # nadie la va a cerrar después porque la rutina ya terminó.
+        #
+        # Se cierra como 'fallida' —no con el estado real— porque en la base
+        # quedó incompleta: `v_corrida_anterior` excluye las fallidas, y usar una
+        # corrida a medio publicar como referencia haría que en la siguiente todo
+        # apareciera marcado como NUEVO.
+        estado_db, error_db = estado, error
+        if self.error_envio:
+            estado_db = 'fallida'
+            error_db = 'No se pudieron publicar las novedades: {}'.format(self.error_envio)
+
+        if self.corrida_id and (self.activo or self.error_envio):
             try:
                 _post('/api/servicio/corridas/{}/cerrar'.format(self.corrida_id),
-                      {'estado': estado, 'totales': totales, 'error': error}, self.token)
-                print('[publicar] corrida {} cerrada como "{}"'.format(self.corrida_id, estado))
+                      {'estado': estado_db, 'totales': totales, 'error': error_db}, self.token)
+                print('[publicar] corrida {} cerrada como "{}"'.format(self.corrida_id, estado_db))
             except ErrorPublicacion as e:
                 print('[publicar] ⚠ no se pudo cerrar la corrida: {}'.format(e))
+
+        # El .json local guarda el estado REAL de la rutina, no el de la base:
+        # que la app no haya recibido las filas no invalida el informe.
         self._guardar_local(estado, totales, error)
 
     def _guardar_local(self, estado, totales, error):

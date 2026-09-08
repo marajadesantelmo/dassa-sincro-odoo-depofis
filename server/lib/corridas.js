@@ -98,7 +98,11 @@ const MODOS = ['simulacion', 'aplicacion'];
 const ORIGENES = ['cron', 'cli', 'manual'];
 const FUENTES = ['espejo', 'origen'];
 const ESTADOS_FINALES = ['ok', 'con_errores', 'fallida'];
-const ACCIONES = ['alta', 'omitido', 'error'];
+// `fuera_alcance` es una acción como cualquier otra para el server: la fila se
+// guarda igual y la pantalla decide si la muestra. Faltaba acá cuando se sumó el
+// filtro de proveedores, y el sintoma fue una corrida que quedaba `en_curso`
+// para siempre porque el lote entero rebotaba con 400.
+const ACCIONES = ['alta', 'omitido', 'error', 'fuera_alcance'];
 const TIPOS = ['cliente', 'concepto'];
 
 export async function abrirCorrida(datos) {
