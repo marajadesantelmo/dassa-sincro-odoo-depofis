@@ -71,9 +71,9 @@ export default function Corridas() {
                   <Td className="text-slate-500 text-[11px]">
                     {c.origen === 'cron' ? 'automática' : (c.disparada_por || c.origen)}
                   </Td>
-                  {/* `en_alcance`, no `evaluados`: los proveedores descartados no
-                      son parte de lo que la corrida analizo. */}
-                  <Td align="right" className="tabular-nums" title={c.fuera_alcance ? `${c.fuera_alcance} proveedores excluidos del analisis` : undefined}>
+                  {/* `en_alcance`, no `evaluados`: lo descartado por el filtro de
+                      alcance no es parte de lo que la corrida analizo. */}
+                  <Td align="right" className="tabular-nums" title={c.fuera_alcance ? `${c.fuera_alcance} fuera de alcance: ${c.fuera_alcance_clientes} proveedores, ${c.fuera_alcance_conceptos} sub-conceptos` : undefined}>
                     {c.en_alcance}
                     {c.fuera_alcance > 0 && (
                       <span className="text-slate-400 font-normal"> +{c.fuera_alcance}</span>

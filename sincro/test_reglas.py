@@ -235,5 +235,30 @@ class TestAlcance(unittest.TestCase):
         self.assertTrue(self.clasificar(facturas_venta=None, facturas_compra=None).en_alcance)
 
 
+class TestConceptoPadre(unittest.TestCase):
+    """Los sub-conceptos (`30055-30`) no se sincronizan. Ver reglas.concepto_padre."""
+
+    def test_sufijo_de_dos_digitos(self):
+        self.assertEqual(reglas.concepto_padre('30055-30'), '30055')
+
+    def test_sufijo_de_tres_digitos(self):
+        """10301-180 existe en Odoo. Una regla de 'guion y DOS digitos' lo
+        dejaria entrar; lo que decide es la forma, no la cantidad de digitos."""
+        self.assertEqual(reglas.concepto_padre('10301-180'), '10301')
+
+    def test_codigo_normal_no_es_hijo(self):
+        self.assertIsNone(reglas.concepto_padre('30055'))
+
+    def test_espacios_alrededor(self):
+        self.assertEqual(reglas.concepto_padre('  30055-30  '), '30055')
+
+    def test_no_confunde_otros_formatos(self):
+        for c in ('30055-', '-30', 'abc-12', '30055-30-40', '30055-3a', ''):
+            self.assertIsNone(reglas.concepto_padre(c), c)
+
+    def test_none_no_explota(self):
+        self.assertIsNone(reglas.concepto_padre(None))
+
+
 if __name__ == '__main__':
     unittest.main()

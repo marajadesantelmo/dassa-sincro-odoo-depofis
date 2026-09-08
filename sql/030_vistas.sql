@@ -106,10 +106,18 @@ SELECT
   COUNT(n.id) FILTER (WHERE n.accion = 'alta' AND n.tipo = 'concepto') AS altas_conceptos,
   COUNT(n.id) FILTER (WHERE n.accion = 'omitido')                      AS omitidos,
   COUNT(n.id) FILTER (WHERE n.accion = 'error')                        AS errores,
-  -- Proveedores: no son omisiones ni trabajo pendiente. Se cuentan aparte a
-  -- propósito — sumarlos a `omitidos` haría que ese número dejara de
-  -- significar "algo que alguien tiene que resolver".
+  -- Lo que la rutina descartó por no ser asunto suyo: proveedores del lado de
+  -- clientes, sub-conceptos del lado de conceptos. No son omisiones ni trabajo
+  -- pendiente. Se cuentan aparte a propósito — sumarlos a `omitidos` haría que
+  -- ese número dejara de significar "algo que alguien tiene que resolver".
   COUNT(n.id) FILTER (WHERE n.accion = 'fuera_alcance')                AS fuera_alcance,
+  -- Y abierto por tipo, porque los dos maestros se descartan por motivos
+  -- distintos y la pantalla los muestra en solapas separadas. Sin esto, el
+  -- contador de la solapa Clientes le restaba también los sub-conceptos.
+  COUNT(n.id) FILTER (WHERE n.accion = 'fuera_alcance' AND n.tipo = 'cliente')
+                                                                       AS fuera_alcance_clientes,
+  COUNT(n.id) FILTER (WHERE n.accion = 'fuera_alcance' AND n.tipo = 'concepto')
+                                                                       AS fuera_alcance_conceptos,
   -- Lo que la rutina realmente analizó como cliente/concepto. Es el
   -- denominador honesto de la pantalla: `evaluados` incluye lo descartado.
   COUNT(n.id) FILTER (WHERE n.accion <> 'fuera_alcance')               AS en_alcance,

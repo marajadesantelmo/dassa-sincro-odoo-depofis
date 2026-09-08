@@ -43,6 +43,16 @@ const COLUMNAS_CONCEPTO = [
   { header: 'Motivo', key: 'motivo', width: 60 },
 ];
 
+/** Lo descartado por el filtro de alcance. Va aparte y con columnas propias:
+ *  de estas filas no hay payload ni vendedor que auditar, sólo el motivo. */
+const COLUMNAS_FUERA = [
+  { header: 'Tipo', key: 'tipo', width: 14 },
+  { header: 'Odoo ID', key: 'odoo_id', width: 10 },
+  { header: 'Nombre', key: 'odoo_nombre', width: 52 },
+  { header: 'CUIT / Referencia', key: 'clave', width: 18 },
+  { header: 'Motivo', key: 'motivo', width: 80 },
+];
+
 function encabezar(hoja) {
   const fila = hoja.getRow(1);
   fila.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
@@ -115,7 +125,9 @@ function hojaResumen(libro, corrida) {
     ['Espejo actualizado al', corrida.fuente_sincronizada_en || '—'],
     [],
     ['Analizados', corrida.en_alcance],
-    ['Fuera de alcance (proveedores)', corrida.fuera_alcance],
+    ['Fuera de alcance', corrida.fuera_alcance],
+    ['  · proveedores', corrida.fuera_alcance_clientes],
+    ['  · sub-conceptos', corrida.fuera_alcance_conceptos],
     ['Altas', corrida.altas],
     ['  · clientes', corrida.altas_clientes],
     ['  · conceptos', corrida.altas_conceptos],
@@ -138,18 +150,35 @@ export async function armarLibro({ corrida, novedades }) {
 
   hojaResumen(libro, corrida);
 
-  const clientes = novedades.filter((n) => n.tipo === 'cliente');
-  const conceptos = novedades.filter((n) => n.tipo === 'concepto');
+  // Lo que quedó fuera de alcance —proveedores y sub-conceptos— va en su propia
+  // hoja, no mezclado en Clientes y Conceptos. Así esas dos hojas tienen
+  // exactamente las filas que muestra la pantalla, y el archivo sigue siendo el
+  // registro completo: se exporta todo, pero cada cosa donde corresponde.
+  const enAlcance = novedades.filter((n) => n.accion !== 'fuera_alcance');
+  const fuera = novedades.filter((n) => n.accion === 'fuera_alcance');
 
   const hojaC = libro.addWorksheet('Clientes');
   hojaC.columns = COLUMNAS_CLIENTE;
-  clientes.forEach((n) => hojaC.addRow(filaCliente(n)));
+  enAlcance.filter((n) => n.tipo === 'cliente').forEach((n) => hojaC.addRow(filaCliente(n)));
   encabezar(hojaC);
 
   const hojaK = libro.addWorksheet('Conceptos');
   hojaK.columns = COLUMNAS_CONCEPTO;
-  conceptos.forEach((n) => hojaK.addRow(filaConcepto(n)));
+  enAlcance.filter((n) => n.tipo === 'concepto').forEach((n) => hojaK.addRow(filaConcepto(n)));
   encabezar(hojaK);
+
+  if (fuera.length) {
+    const hojaF = libro.addWorksheet('Fuera de alcance');
+    hojaF.columns = COLUMNAS_FUERA;
+    fuera.forEach((n) => hojaF.addRow({
+      tipo: n.tipo === 'cliente' ? 'proveedor' : 'sub-concepto',
+      odoo_id: n.odoo_id,
+      odoo_nombre: n.odoo_nombre,
+      clave: n.clave || '',
+      motivo: n.motivo || '',
+    }));
+    encabezar(hojaF);
+  }
 
   // El mapeo usado va en el libro: sin él, la columna "Vendedor DEPOFIS" es un
   // número sin explicación para quien abra el archivo en otra máquina.

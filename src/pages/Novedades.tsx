@@ -17,7 +17,24 @@ import {
   Chip, KPI, Seccion, TituloPagina, Vacio,
 } from '../components/ui';
 
-type Filtro = 'todas' | 'altas' | 'atencion' | 'nuevas' | 'omitidas' | 'errores' | 'proveedores';
+type Filtro = 'todas' | 'altas' | 'atencion' | 'nuevas' | 'omitidas' | 'errores' | 'fuera';
+
+// Lo que queda fuera de alcance se llama distinto en cada solapa, porque el
+// motivo es distinto: en clientes son proveedores, en conceptos son los
+// tramos de dias de otro concepto. Un solo filtro, dos nombres.
+const EXCLUIDAS = {
+  cliente: 'Proveedores',
+  concepto: 'Sub-conceptos',
+} as const;
+
+// El subtitulo del KPI "Analizados". Nombra lo que se descarto en vez de decir
+// un numero pelado: si el dia de manana el filtro se pasa de largo, se ve aca.
+function subExcluidos(c: Corrida): string {
+  const partes: string[] = [];
+  if (c.fuera_alcance_clientes) partes.push(`${c.fuera_alcance_clientes} proveedores`);
+  if (c.fuera_alcance_conceptos) partes.push(`${c.fuera_alcance_conceptos} sub-conceptos`);
+  return partes.length ? `${partes.join(' · ')} fuera de alcance` : 'registros de Odoo mirados';
+}
 
 export default function Novedades() {
   const { me } = useOutletContext<ContextoLayout>();
@@ -58,13 +75,14 @@ export default function Novedades() {
 
   // Los filtros se aplican acá y no pidiéndole otra vez al server: la corrida
   // entera ya está en memoria (~460 filas) y cada click sería un viaje de red.
-  // El .xlsx sí lo arma el server, sin filtros: es el registro completo.
+  // El .xlsx sí lo arma el server, y va sin filtros: es el registro completo,
+  // con lo fuera de alcance en su propia hoja.
   const visibles = useMemo(() => {
     const delTipo = novedades.filter((n) => n.tipo === tipo);
-    // Los proveedores NO entran en ninguna vista salvo la suya. "Todas" quiere
-    // decir "todas las que esta rutina analiza", no "todas las filas que hay":
-    // con 62 proveedores sobre 117 contactos, incluirlos convertía la pantalla
-    // principal en una lista que nadie iba a leer.
+    // Lo excluido NO entra en ninguna vista salvo la suya. "Todas" quiere decir
+    // "todas las que esta rutina analiza", no "todas las filas que hay": con 61
+    // proveedores sobre 118 contactos y 78 sub-conceptos sobre 345 productos,
+    // incluirlos convertía la pantalla en una lista que nadie iba a leer.
     const enAlcance = delTipo.filter((n) => n.accion !== 'fuera_alcance');
     switch (filtro) {
       case 'altas': return enAlcance.filter((n) => n.accion === 'alta');
@@ -72,7 +90,7 @@ export default function Novedades() {
       case 'nuevas': return enAlcance.filter((n) => n.es_nueva);
       case 'omitidas': return enAlcance.filter((n) => n.accion === 'omitido');
       case 'errores': return enAlcance.filter((n) => n.accion === 'error');
-      case 'proveedores': return delTipo.filter((n) => n.accion === 'fuera_alcance');
+      case 'fuera': return delTipo.filter((n) => n.accion === 'fuera_alcance');
       default: return enAlcance;
     }
   }, [novedades, tipo, filtro]);
@@ -87,15 +105,18 @@ export default function Novedades() {
       nuevas: t.filter((n) => n.es_nueva).length,
       omitidas: t.filter((n) => n.accion === 'omitido').length,
       errores: t.filter((n) => n.accion === 'error').length,
-      proveedores: delTipo.filter((n) => n.accion === 'fuera_alcance').length,
+      fuera: delTipo.filter((n) => n.accion === 'fuera_alcance').length,
     };
   }, [novedades, tipo]);
 
-  // Cambiar de solapa con el filtro "Proveedores" puesto dejaría una tabla
-  // vacía sin explicación: los conceptos nunca quedan fuera de alcance.
+  // Las dos solapas tienen exclusiones, pero no siempre las dos a la vez: si la
+  // solapa a la que se va no tiene ninguna, el filtro dejaría una tabla vacía
+  // sin explicación. En ese caso se vuelve a "Todas".
   function cambiarTipo(t: TipoNovedad) {
     setTipo(t);
-    if (filtro === 'proveedores') setFiltro('todas');
+    if (filtro === 'fuera' && !novedades.some((n) => n.tipo === t && n.accion === 'fuera_alcance')) {
+      setFiltro('todas');
+    }
   }
 
   async function exportar() {
@@ -222,9 +243,7 @@ export default function Novedades() {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <KPI titulo="Analizados" valor={corrida.en_alcance}
-             sub={corrida.fuera_alcance
-               ? `${corrida.fuera_alcance} proveedores excluidos`
-               : 'registros de Odoo mirados'} />
+             sub={subExcluidos(corrida)} />
         <KPI titulo="Altas" valor={corrida.altas} acento="verde"
              sub={`${corrida.altas_clientes} clientes · ${corrida.altas_conceptos} conceptos`} />
         <KPI titulo="Omitidos" valor={corrida.omitidos} sub="ya existían o les falta un dato" />
@@ -244,17 +263,17 @@ export default function Novedades() {
           <span className="flex items-center gap-1">
             <button type="button" onClick={() => cambiarTipo('cliente')}
                     className={`px-2 py-1 rounded-md text-xs font-bold ${tipo === 'cliente' ? 'bg-dassa text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>
-              Clientes ({corrida.clientes - corrida.fuera_alcance})
+              Clientes ({corrida.clientes - corrida.fuera_alcance_clientes})
             </button>
             <button type="button" onClick={() => cambiarTipo('concepto')}
                     className={`px-2 py-1 rounded-md text-xs font-bold ${tipo === 'concepto' ? 'bg-dassa text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>
-              Conceptos ({corrida.conceptos})
+              Conceptos ({corrida.conceptos - corrida.fuera_alcance_conceptos})
             </button>
           </span>
         }
         sub={tipo === 'cliente'
           ? 'res.partner → DASSA.Clientes · sólo clientes: los proveedores van a DASSA.Proveed y no se sincronizan'
-          : 'product.template → DASSA.Concepfc · el código es la Referencia Interna de Odoo'}
+          : 'product.template → DASSA.Concepfc · el código es la Referencia Interna de Odoo, sin los sub-conceptos (30055-30)'}
         accion={
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
             <Chip label="Todas" activo={filtro === 'todas'} count={cuenta.todas} onClick={() => setFiltro('todas')} />
@@ -268,17 +287,17 @@ export default function Novedades() {
             {/* Separado del resto a propósito: no es un filtro más sobre el
                 trabajo pendiente, es la puerta a lo que quedó afuera. Está para
                 poder auditar la exclusión, no para trabajar desde ahí. */}
-            {cuenta.proveedores > 0 && (
+            {cuenta.fuera > 0 && (
               <>
                 <span className="text-slate-300 select-none">|</span>
-                <Chip label="Proveedores" activo={filtro === 'proveedores'} count={cuenta.proveedores}
-                      onClick={() => setFiltro('proveedores')} />
+                <Chip label={EXCLUIDAS[tipo]} activo={filtro === 'fuera'} count={cuenta.fuera}
+                      onClick={() => setFiltro('fuera')} />
               </>
             )}
           </div>
         }
       >
-        {filtro === 'proveedores' && (
+        {filtro === 'fuera' && tipo === 'cliente' && (
           <BannerInfo>
             <strong>Estos contactos quedaron fuera del análisis.</strong> Son proveedores: en
             DEPOFIS viven en <code className="font-mono">DASSA.Proveed</code>, que esta rutina no
@@ -286,6 +305,16 @@ export default function Novedades() {
             en DEPOFIS. Se listan para poder revisar el filtro — si alguno de éstos es en
             realidad un cliente, se corrige en Odoo asignándole el <em>Salesperson</em> o la
             etiqueta de categoría comercial, y en la próxima corrida entra.
+          </BannerInfo>
+        )}
+        {filtro === 'fuera' && tipo === 'concepto' && (
+          <BannerInfo>
+            <strong>Estos productos quedaron fuera del análisis.</strong> Su Referencia Interna
+            tiene la forma <code className="font-mono">padre-sufijo</code>{' '}
+            (<code className="font-mono">30055-30</code>): no son conceptos, son los tramos de
+            días del concepto <code className="font-mono">30055</code>. Esa apertura existe en
+            Odoo y no en DEPOFIS, donde el concepto es uno solo y los días los resuelve el
+            cálculo. Darlos de alta duplicaría el código padre.
           </BannerInfo>
         )}
         <TablaNovedades novedades={visibles} tipo={tipo} />

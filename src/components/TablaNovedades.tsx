@@ -100,7 +100,7 @@ export default function TablaNovedades({ novedades, tipo }: { novedades: Novedad
                 {n.odoo_nombre}
               </Td>
               <Td className="font-mono text-[11px] whitespace-nowrap">{n.clave || '—'}</Td>
-              <Td align="center"><BadgeAccion accion={n.accion} /></Td>
+              <Td align="center"><BadgeAccion accion={n.accion} tipo={n.tipo} /></Td>
 
               {n.tipo === 'cliente' ? (
                 <>

@@ -21,19 +21,26 @@ cuatro acciones: `alta` (falta en DEPOFIS y hay datos para crearlo), `omitido`
 `fuera_alcance` (no es asunto de esta rutina — ver abajo).
 El resultado se publica en la app `sincro-odoo-depofis`, que es donde se mira.
 
-EL ALCANCE: CLIENTES, NO PROVEEDORES
-────────────────────────────────────
-En Odoo clientes y proveedores conviven en `res.partner`; en DEPOFIS son dos
-tablas, `DASSA.Clientes` y `DASSA.Proveed`. Esta rutina sincroniza SÓLO
-clientes. Decisión de negocio: DEPOFIS no necesita estar al día en proveedores,
-ese maestro se administra en Odoo.
+EL ALCANCE
+──────────
+Dos filtros, uno por maestro, y los dos por la misma razón: hay cosas en Odoo
+que no son asunto de DEPOFIS.
 
-Los contactos que son proveedores y no tienen ningún indicio de ser también
-clientes se registran como `fuera_alcance`, sin `requiere_atencion`, y la
-pantalla los deja fuera de la vista por default. Se publican igual —no se
-descartan en silencio— para que la exclusión se pueda auditar: un filtro que no
-se ve no se puede discutir. La regla y su verificación están en
-`reglas.clasificar_alcance`.
+· CLIENTES, NO PROVEEDORES. En Odoo clientes y proveedores conviven en
+  `res.partner`; en DEPOFIS son dos tablas, `DASSA.Clientes` y `DASSA.Proveed`.
+  Esta rutina sincroniza SÓLO clientes. Decisión de negocio: DEPOFIS no
+  necesita estar al día en proveedores, ese maestro se administra en Odoo.
+
+· CONCEPTOS, NO SUB-CONCEPTOS. Una Referencia Interna `padre-sufijo`
+  (30055-30) es el tramo de días del concepto `padre`, una apertura que vive en
+  Odoo. En DEPOFIS el concepto es uno solo y los días los resuelve `calcula`.
+
+Los dos casos se registran como `fuera_alcance`, sin `requiere_atencion`, y la
+pantalla los deja fuera de la vista por default: no se cuentan como pendientes
+ni entran en ningún total del informe. Se publican igual —no se descartan en
+silencio— para que la exclusión se pueda auditar: un filtro que no se ve no se
+puede discutir. Las reglas y su verificación están en
+`reglas.clasificar_alcance` y `reglas.concepto_padre`.
 
 1) CLIENTES · res.partner → DASSA.Clientes
    Candidatos: is_company=True, vat cargado, depofis_code vacío en Odoo,
@@ -56,7 +63,8 @@ se ve no se puede discutir. La regla y su verificación están en
 2) CONCEPTOS · product.template → DASSA.Concepfc
    El código DEPOFIS ya está en Odoo como `default_code` (Referencia Interna),
    cargado en la migración original. Se evalúan los productos con Referencia
-   Interna numérica que no existan todavía en Concepfc.
+   Interna numérica que no existan todavía en Concepfc. Los sub-conceptos
+   (`30055-30`) quedan fuera de alcance: ver arriba.
    La unidad de cálculo (`calcula`) se deriva del nombre replicando la regla
    que ya corre en producción en `update_prefacturacion_odoo.py`.
 
@@ -360,12 +368,28 @@ def procesar_conceptos(acceso, modo, pub, ahora):
     )
     log('\n{} producto(s) en Odoo con Referencia Interna cargada.\n'.format(len(productos)))
 
-    conteo = {'alta': 0, 'omitido': 0, 'error': 0}
+    conteo = {'alta': 0, 'omitido': 0, 'error': 0, 'fuera_alcance': 0}
 
     for prod in productos:
         codigo = str(prod['default_code']).strip()
         nombre = (prod['name'] or '').strip()
         base = {'tipo': 'concepto', 'odoo_id': prod['id'], 'odoo_nombre': nombre, 'clave': codigo}
+
+        # ── Alcance: los sub-conceptos no son conceptos ────────────────────
+        # `30055-30` es el tramo "0 a 30 días" del concepto 30055, una apertura
+        # que vive en Odoo. En DEPOFIS el concepto es uno solo y los días los
+        # resuelve `calcula`. Van PRIMERO y como `fuera_alcance`, no como
+        # omisión: no le falta nada a este producto, simplemente no es asunto
+        # de esta rutina. Ver reglas.concepto_padre.
+        padre = reglas.concepto_padre(codigo)
+        if padre:
+            pub.agregar(dict(base, accion='fuera_alcance', requiere_atencion=False, payload={},
+                             motivo='Sub-concepto del {}: el sufijo "-{}" es el tramo de días, '
+                                    'una apertura que existe en Odoo y no en DEPOFIS, donde el '
+                                    'concepto es uno solo y los días los resuelve el cálculo.'
+                                    .format(padre, codigo.split('-')[1])))
+            conteo['fuera_alcance'] += 1
+            continue
 
         if not codigo.isdigit():
             pub.agregar(dict(base, accion='omitido', requiere_atencion=False, payload={},
@@ -418,6 +442,8 @@ def procesar_conceptos(acceso, modo, pub, ahora):
             pub.agregar(dict(base, accion='alta', requiere_atencion=revisar,
                              payload=payload, motivo=motivo))
 
+    log('Fuera de alcance (sub-conceptos): {}  ·  evaluados como concepto: {}'.format(
+        conteo['fuera_alcance'], len(productos) - conteo['fuera_alcance']))
     log('Altas: {}  ·  omitidos: {}  ·  errores: {}'.format(
         conteo['alta'], conteo['omitido'], conteo['error']))
     return conteo

@@ -291,6 +291,44 @@ def formatear_cuit(vat):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  CONCEPTOS — alcance: los sub-conceptos no se sincronizan
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Una Referencia Interna con la forma `padre-sufijo` (10303-30, 30055-90,
+# 10301-180) no es un código de `Concepfc`: es un HIJO del concepto `padre`.
+# El sufijo es el tramo de días que factura —07, 10, 30, 60, 90, 99, 180— y la
+# apertura por tramo vive en Odoo, no en DEPOFIS. DEPOFIS tiene un solo concepto
+# (30055 · ALMACENAJE DE CONTENEDOR VACIO) y la cantidad de días la resuelve
+# `calcula`.
+#
+# Decisión de negocio (Facu, 2026-09-08): estos hijos quedan fuera de la
+# sincronización y fuera del informe. Darlos de alta crearía 78 conceptos que
+# DEPOFIS no usa y que romperían la unicidad del código padre.
+#
+# MEDIDO (2026-09-08): de los 345 productos de Odoo con Referencia Interna, 78
+# tienen esta forma. Los 78 tienen su padre presente en `Concepfc` y ninguno
+# de ellos está cargado como concepto propio — o sea que la lectura "es un
+# hijo, no un concepto" es la correcta en el 100 % de los casos. No hay ninguna
+# otra Referencia Interna no numérica: este patrón explica TODAS las que antes
+# se omitían por "no es numérica".
+#
+# La regla es la forma del código, no la cantidad de dígitos del sufijo: 10301-180
+# es tan hijo como 30055-30, y una regla de "guión y dos dígitos" lo dejaría
+# entrar.
+
+def concepto_padre(codigo):
+    """Código del concepto padre si `codigo` es un sub-concepto; si no, None.
+
+        concepto_padre('30055-30')  →  '30055'
+        concepto_padre('30055')     →  None
+
+    Se usa para excluirlos: ver el comentario de arriba.
+    """
+    m = re.match(r'^(\d+)-(\d+)$', str(codigo or '').strip())
+    return m.group(1) if m else None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  CONCEPTOS — unidad de cálculo
 # ═══════════════════════════════════════════════════════════════════════════
 #

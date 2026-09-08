@@ -28,7 +28,7 @@ está destildado y el 15 si está tildado. El mapa completo está en
 ## Empezar
 
 ```bash
-python -m unittest sincro.test_reglas -v   # 37 tests, sin credenciales ni red
+python -m unittest sincro.test_reglas -v   # 43 tests, sin credenciales ni red
 python sincronizar.py --help
 ```
 

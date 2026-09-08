@@ -6,7 +6,7 @@
  * `BadgeNueva` y `CodigoVendedor`, abajo de todo.
  */
 import type { PropsWithChildren, ReactNode } from 'react';
-import type { AccionNovedad } from '../lib/types';
+import type { AccionNovedad, TipoNovedad } from '../lib/types';
 
 type Acento = 'slate' | 'rojo' | 'ambar' | 'azul' | 'verde' | 'violeta';
 
@@ -274,13 +274,14 @@ export function BadgeEstado({ estado }: { estado: string }) {
   return <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${estilo}`}>{texto}</span>;
 }
 
-export function BadgeAccion({ accion }: { accion: AccionNovedad }) {
+export function BadgeAccion({ accion, tipo }: { accion: AccionNovedad; tipo?: TipoNovedad }) {
   // `fuera_alcance` va en gris apagado y con otra etiqueta: no es una acción
-  // que la rutina tomó sobre un cliente, es "esto no era asunto nuestro".
+  // que la rutina tomó sobre el registro, es "esto no era asunto nuestro". La
+  // etiqueta dice POR QUÉ quedó afuera, que es distinto en cada maestro.
   if (accion === 'fuera_alcance') {
     return (
       <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-50 text-slate-400 border-slate-200 whitespace-nowrap">
-        PROVEEDOR
+        {tipo === 'concepto' ? 'SUB-CONCEPTO' : 'PROVEEDOR'}
       </span>
     );
   }

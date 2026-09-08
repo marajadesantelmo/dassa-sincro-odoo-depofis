@@ -63,6 +63,15 @@ export default function Ayuda() {
               que ya usa la prefacturación en producción: si dice “Almacenaje” y “Contenedor”,
               se cobra por días; si dice “Almacenaje” sin “Contenedor”, por días × volumen.
             </p>
+            <p className="mt-1">
+              <strong>Sin sub-conceptos.</strong> Una Referencia Interna con la forma{' '}
+              <code className="font-mono">padre-sufijo</code>{' '}
+              (<code className="font-mono">30055-30</code>) no es un concepto: es el tramo de
+              días del concepto <code className="font-mono">30055</code>, una apertura que existe
+              en Odoo y no en DEPOFIS, donde el concepto es uno solo y los días los resuelve el
+              cálculo. Quedan <strong>fuera de alcance</strong> y se ven con el filtro{' '}
+              <em>Sub-conceptos</em>.
+            </p>
           </div>
         </div>
       </Seccion>
@@ -73,6 +82,7 @@ export default function Ayuda() {
           <Fila que="OMITIDO" dice="No corresponde crearlo. El motivo dice por qué: el CUIT ya existe, le falta la categoría, el código ya está en Concepfc." />
           <Fila que="ERROR" dice="Se intentó el alta y DEPOFIS la rechazó. Sólo aparece en corridas de aplicación." />
           <Fila que="PROVEEDOR" dice="No es un cliente: es un proveedor, y los proveedores no se sincronizan. No es trabajo pendiente. Aparece sólo con el filtro Proveedores, para poder revisar el criterio." />
+          <Fila que="SUB-CONCEPTO" dice="No es un concepto: es un tramo de días de otro concepto (30055-30 es el tramo de 30055). No se sincroniza ni es trabajo pendiente. Aparece sólo con el filtro Sub-conceptos." />
           <Fila que="NUEVA" dice="Este registro no figuraba en la corrida anterior. Es lo que apareció desde la última vez que se miró." />
           <Fila que="⚠ Atención" dice="Alguien tiene que hacer algo antes de habilitar el alta: falta el vendedor, hay que vincular el Código DEPOFIS en Odoo, o hay un dato que se resolvió por aproximación." />
           <Fila que="sin resolver" dice="El contacto no tiene Salesperson en Odoo, así que no hay código de vendedor que mandar. Se arregla en Odoo, no acá." />

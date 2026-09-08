@@ -26,7 +26,12 @@ Dos piezas que se hablan por HTTP, no una sola app:
 **La app no dispara la sincronización.** Es la ventana: muestra lo que la
 rutina publicó. Ver Decisiones #1.
 
-## 🎯 El alcance: clientes sí, proveedores no
+## 🎯 El alcance: qué sincroniza y qué no
+
+Dos filtros, uno por maestro, y los dos por la misma razón: hay cosas en Odoo
+que no son asunto de DEPOFIS.
+
+### Clientes sí, proveedores no
 
 En Odoo clientes y proveedores conviven en `res.partner`. En DEPOFIS **no**: son
 dos tablas distintas, `DASSA.Clientes` (1369 filas) y `DASSA.Proveed` (1609).
@@ -98,17 +103,43 @@ trae `sincronizar.contar_facturas`: dos `read_group` por lotes de 500, no un
 ### Cómo se ve
 
 La acción `fuera_alcance` **nunca** lleva `requiere_atencion` (hay un CHECK en la
-base que lo impide) y la pantalla la deja fuera de todas las vistas salvo el
-filtro **Proveedores**.
+base que lo impide) y la pantalla la deja fuera de todas las vistas y de todos
+los totales, salvo un filtro aparte: **Proveedores** en la solapa de clientes,
+**Sub-conceptos** en la de conceptos. En el `.xlsx` van a su propia hoja, no
+mezclados con los analizados.
 
 Se publican igual, en vez de descartarse en silencio: **un filtro que no se ve
 no se puede discutir.** Si alguno de esos contactos es en realidad un cliente,
 se corrige en Odoo —asignándole el Salesperson o la etiqueta de categoría— y en
 la próxima corrida entra solo.
 
-**Los conceptos no tienen este problema**: los 8 candidatos son servicios
-propios de DASSA (`EXPORTACION MARITIMA`), todos `sale_ok`. No se les agregó
-ningún filtro porque no cambiaría una sola fila.
+### Del lado conceptos: los sub-conceptos tampoco entran
+
+Una Referencia Interna con la forma `padre-sufijo` —`30055-30`, `10303-90`,
+`10301-180`— no es un código de `Concepfc`: es un **hijo** del concepto
+`padre`. El sufijo es el tramo de días que factura (07, 10, 30, 60, 90, 99,
+180) y esa apertura vive en Odoo. DEPOFIS tiene un solo concepto —30055 ·
+ALMACENAJE DE CONTENEDOR VACIO— y los días los resuelve `calcula`.
+
+**Decisión de negocio (Facu, 2026-09-08): no se sincronizan ni aparecen en el
+informe.** Darlos de alta crearía 78 conceptos que DEPOFIS no usa, con el
+código padre duplicado.
+
+Medido: de los 345 productos con Referencia Interna, **78 tienen esta forma**,
+los 78 tienen su padre presente en `Concepfc` y ninguno está cargado como
+concepto propio. Y no hay ninguna otra Referencia Interna no numérica: este
+patrón explica **todas** las que antes se omitían por "no es numérica".
+
+La regla es la forma del código, no la cantidad de dígitos del sufijo —
+`10301-180` es tan hijo como `30055-30`, y un criterio de "guión y dos dígitos"
+lo dejaría entrar. Está en `reglas.concepto_padre` (6 tests).
+
+⚠️ **Ojo con los que tienen código propio.** `20121`…`20125` ("BAJADA DE
+MERCADERÍA A PISO … DE 0 A 7 / 30 / 60 / 90 / MAYOR A 90 DÍAS") son tramos de
+días igual que los hijos, pero cada uno con su **código numérico propio**, así
+que son conceptos legítimos y entran. Si el criterio de negocio fuera "ningún
+tramo de días se sincroniza", estos cinco también habría que sacarlos — pero eso
+es otra regla, y hoy no está pedida.
 
 ## ✍️ Cómo se escribe en DEPOFIS — `INSERT INTO` no sirve
 
@@ -262,10 +293,10 @@ De los 57 analizados, los que tienen Salesperson resuelven código sin problema
 (Enzo 12 → 5, Alexis 7 → 18 y 3 → 8, Guillermo 5 → 17 y 3 → 7), que es la
 confirmación en vivo de que el criterio de vendedor funciona.
 
-### Conceptos: **8 altas** de 345
+### Conceptos: **8 altas** de 267 analizados
 
-259 ya existen en `Concepfc` y 78 tienen Referencia Interna no numérica. Los 8
-que faltan:
+78 quedan fuera de alcance por ser sub-conceptos y 259 ya existen en
+`Concepfc`. Los 8 que faltan:
 
 | código | calcula | |
 |---|---|---|
@@ -298,7 +329,7 @@ y habría que corregirlos a mano en DEPOFIS.
 
 | Archivo | Por qué |
 |---|---|
-| `sincro/reglas.py` | **el criterio.** `clasificar_alcance` (clientes vs proveedores), VENDEDOR_MAP, IVA, unidad de cálculo. Módulo puro: sin red, sin archivos, sin pyodbc. Se testea solo (37 tests). |
+| `sincro/reglas.py` | **el criterio.** `clasificar_alcance` (clientes vs proveedores), `concepto_padre` (sub-conceptos), VENDEDOR_MAP, IVA, unidad de cálculo. Módulo puro: sin red, sin archivos, sin pyodbc. Se testea solo (43 tests). |
 | `sincro/config.py` | **el freno.** `resolver_modo()` es lo único que puede devolver `'aplicacion'`. |
 | `sincro/depofis.py` | `AccesoLectura` vs `AccesoEscritura`. Si alguien agrega un INSERT a la clase de lectura, rompe la garantía. |
 | `sincro/odoo_client.py` | allowlist de métodos: cualquier escritura levanta `PermissionError` **antes** de tocar la red. |
@@ -314,7 +345,7 @@ python sincronizar.py                     # SIMULACIÓN desde el ESPEJO — el d
 python sincronizar.py --solo clientes
 python sincronizar.py --fuente origen     # simular leyendo el SQL Server (necesita pyodbc)
 python sincronizar.py --sin-publicar      # sólo el .json local, en salidas/
-python -m unittest sincro.test_reglas -v  # 37 tests, sin credenciales
+python -m unittest sincro.test_reglas -v  # 43 tests, sin credenciales
 
 # simular necesita psycopg2 (espejo). Sólo aplicar necesita pyodbc:
 #   pip install --user pyodbc   ← no hace falta sudo en el box
@@ -401,6 +432,14 @@ pm2 restart dassa-sincro-odoo-depofis --update-env
     proveedores (EL VISOR, LOMAS METAL, NUEVO ESTIBAJE, TERMINAL 4). Las
     facturas son el subconjunto verdadero del rank: cuestan dos `read_group` y
     no mienten.
+
+11. **`fuera_alcance` es una acción, no un tipo aparte ni un `WHERE` en el
+    `search_read`.** Los dos filtros de alcance —proveedores y sub-conceptos—
+    guardan la fila con su motivo y dejan que la pantalla la esconda. Cuesta 139
+    filas por corrida y la tentación de no traerlas es real; es la misma razón
+    de la decisión 9. La diferencia entre "no aparece" y "no existe" es que la
+    primera se puede auditar: la pregunta "¿por qué no está 30055-30?" se
+    contesta abriendo un filtro, no leyendo el código.
 
 - **`fields_get('product.template')` se consulta para ver si existe
   `depofis_calcula`**, que hoy NO existe. Si algún día lo agregan, el dato del

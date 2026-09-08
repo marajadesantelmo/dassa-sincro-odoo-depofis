@@ -16,8 +16,9 @@ export interface Me {
 export type Modo = 'simulacion' | 'aplicacion';
 export type EstadoCorrida = 'en_curso' | 'ok' | 'con_errores' | 'fallida';
 export type TipoNovedad = 'cliente' | 'concepto';
-/** `fuera_alcance` = es un proveedor, no un cliente. No es una omisión ni
- *  trabajo pendiente: es un registro que esta rutina no sincroniza. Se guarda
+/** `fuera_alcance` = no es asunto de esta rutina. Del lado de clientes, un
+ *  proveedor; del lado de conceptos, un sub-concepto (`30055-30`, el tramo de
+ *  días del concepto 30055). No es una omisión ni trabajo pendiente. Se guarda
  *  para poder auditar el filtro, y la pantalla lo deja fuera por default. */
 export type AccionNovedad = 'alta' | 'omitido' | 'error' | 'fuera_alcance';
 
@@ -59,9 +60,13 @@ export interface Corrida {
   altas_conceptos: number;
   omitidos: number;
   errores: number;
-  /** Contactos descartados por ser proveedores. Se cuenta aparte de `omitidos`
-   *  a propósito: un proveedor no es algo pendiente de resolver. */
+  /** Registros descartados por no ser asunto de la rutina. Se cuenta aparte de
+   *  `omitidos` a propósito: nada de esto es algo pendiente de resolver. */
   fuera_alcance: number;
+  /** De `fuera_alcance`, los que son proveedores (tipo cliente). */
+  fuera_alcance_clientes: number;
+  /** De `fuera_alcance`, los sub-conceptos (tipo concepto). */
+  fuera_alcance_conceptos: number;
   /** `evaluados` menos los `fuera_alcance`. Es el denominador honesto: lo que
    *  la rutina realmente analizó como cliente o concepto. */
   en_alcance: number;
