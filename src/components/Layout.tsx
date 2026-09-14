@@ -44,18 +44,21 @@ export default function Layout() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
+    <div className="min-h-screen bg-[#F5F3F3] text-slate-900 font-sans flex flex-col">
       <header className="bg-dassa text-white px-3 sm:px-6 py-2 flex items-center gap-3 shadow-md sticky top-0 z-30">
         <a
           href="https://apps.dassa.com.ar"
           target="_top"
-          className="inline-flex items-center gap-1.5 rounded-md bg-white/15 hover:bg-white/25 px-2 py-1 text-xs font-semibold"
+          title="Volver a Smart DASSA Apps"
+          className="shrink-0 hover:opacity-90 inline-flex items-center"
         >
-          🏠 <span className="hidden sm:inline">Apps DASSA</span>
+          {/* El lockup pintado de blanco es, además, la vuelta al portal. */}
+          <img src="/sincro-odoo-depofis/ds/logos/dassa-lockup.png" alt="DASSA"
+               className="h-6 w-auto block [filter:brightness(0)_invert(1)]" />
         </a>
+        <span className="hidden sm:block w-px h-5 bg-white/35 shrink-0" />
 
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xl">🔄</span>
           <Link to="/" className="font-extrabold tracking-tight text-sm sm:text-base truncate hover:opacity-90">
             Sincro Odoo <span className="opacity-70">→</span> DEPOFIS
           </Link>

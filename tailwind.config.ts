@@ -15,13 +15,13 @@ export default {
       colors: {
         // Rojo DASSA del manual de marca (el mismo #C8202C del manifest).
         dassa: {
-          DEFAULT: '#C8202C',
-          dark: '#A31A23',
-          light: '#E8535E',
+          DEFAULT: '#BF1E2E',
+          dark: '#A8121E',
+          light: '#E0303E',
         },
       },
       fontFamily: {
-        sans: ['ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Montserrat', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
     },

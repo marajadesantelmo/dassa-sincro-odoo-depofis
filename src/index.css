@@ -4,6 +4,11 @@
 
 html, body, #root { height: 100%; }
 body {
+  /* Manual 4.0: Open Sans lee, Montserrat titula (por ds/dassa-app.css). */
+  font-family: "Open Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #F5F3F3;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+h1, h2, h3, h4 { font-family: "Montserrat", system-ui, sans-serif; letter-spacing: -0.018em; }
