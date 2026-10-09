@@ -4,9 +4,10 @@
 > El repo, el `app_key` y el proceso pm2 se siguen llamando `sincro-odoo-depofis`
 > por historia; **la dirección es DEPOFIS → Odoo**.
 >
-> **Estado (2026-10-09): versión 0.2 escrita y verificada en simulación ·
-> app deployada desde 2026-09-07 con la 0.1 · falta deployar la 0.2, la
-> primera escritura en Odoo y el cron.**
+> **Estado (2026-10-09): 0.2 EN PRODUCCIÓN y escribiendo en Odoo.** Cron cada
+> hora a los :30, L-V 8 a 20, con `--aplicar` (ver `docs/DEPLOY.md` §6). La
+> primera sincronización (corridas 14–16) creó 25 clientes, vinculó 62 y creó 3
+> conceptos; todo verificado contra DEPOFIS.
 
 ## 🧭 La dirección, y por qué este archivo se reescribió
 
@@ -148,14 +149,19 @@ y los errores al intentarlo (Facu, 2026-10-09). Lo que no se puede sincronizar
 filtros separados. Lo que ya está sincronizado no se publica fila por fila: se
 cuenta en `corrida.totales` y la pantalla lo muestra como un número.
 
-## El informe de hoy (simulación del 2026-10-09)
+## La primera sincronización (2026-10-09)
+
+Las cifras de la simulación previa; se aplicaron en las corridas 14 (una sola,
+`--limite 1`: vinculó Plasticos Dise, clie 1341), 15 (cortada a mano a mitad:
+quedó cerrada como `fallida`, sus ~54 escrituras se verificaron en Odoo) y 16
+(el resto, `ok`).
 
 | | |
 |---|---|
 | Clientes activos en DEPOFIS | 1538 (más 503 inactivos que no se miran) |
 | Ya vinculados en Odoo | 1451 |
 | **Altas de cliente** | **25** — 3 sin Salesperson (COMWORKS, SAVINO DEL BENE, CONSTRUCTORA TORRE) |
-| **A vincular** | **61** |
+| **A vincular** | **62** (61 en la simulación; uno más entró al espejo antes de aplicar) |
 | No se pueden | 1 — MERCURIA S.R.L., dos contactos duplicados en Odoo (ids 52096 y 52165) |
 | **Altas de concepto** | **3** — 20604 VERIFICACION SENASA, 30065 ALMACENAJE DE VEHÍCULO X DIA (MOTO), 30339 TOMA DE CONTENIDO |
 | Conceptos ya en Odoo / que no son conceptos | 259 / 18 |
@@ -248,9 +254,5 @@ node scripts/setup-idp.cjs --quien
 
 ## Lo que NO se verificó todavía
 
-1. **Una escritura real en Odoo.** Todo lo de la 0.2 se probó en simulación
-   contra Odoo de producción y el espejo, más `tsc` y `vite build` en el box. La
-   primera escritura tiene que ser con `--limite 1` y revisada a mano.
-2. **La pantalla con datos 0.2**: necesita el deploy y las migraciones.
-3. **El lint** tiene dos errores que ya estaban en la 0.1 (`_next` sin usar en
+1. **El lint** tiene dos errores que ya estaban en la 0.1 (`_next` sin usar en
    `server/index.js`, `setState` en el effect de `Novedades.tsx`); no se tocaron.

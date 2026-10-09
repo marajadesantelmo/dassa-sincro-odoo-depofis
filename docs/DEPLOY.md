@@ -122,14 +122,29 @@ crontab -l > ~/crontab.bak-$(date +%F)
 crontab -e
 ```
 
+Cargado el 2026-10-09 (en el crontab de `dassa`):
+
 ```cron
-# Sincro DEPOFIS → Odoo · lunes a viernes 08:30.
-# A los :30 para no pisarse con el ETL de dassa_integracion_odoo_depofis (corre a los :00).
-30 8 * * 1-5 cd /home/dassa/dassa4/apps/sincro-odoo-depofis && /usr/bin/python3 sincronizar.py --origen cron >> logs/cron.log 2>&1
+# Sincro DEPOFIS -> Odoo · cada hora a los :30, L-V 8 a 20 (espejo y ETL corren a los :00). flock evita dos corridas a la vez.
+30 8-20 * * 1-5 cd /home/dassa/dassa4/apps/sincro-odoo-depofis && flock -n /tmp/sincro-odoo-depofis.lock /usr/bin/python3 sincronizar.py --aplicar --origen cron >> logs/cron.log 2>&1
 ```
 
-Así corre en **simulación**. Cuando se decida escribir todos los días, se
-agrega `--aplicar` a esa línea, con `SINCRO_PERMITIR_APLICAR=si` en el `.env`.
+**Cada hora y no una vez por día**: el ETL de prefacturación busca a los
+clientes por CUIT en Odoo cada hora, así que un cliente nuevo de DEPOFIS tiene
+que llegar a Odoo en menos de una hora. Una corrida sin nada que hacer tarda
+~7 s y no escribe nada. `flock -n` saltea la corrida si la anterior sigue viva.
+
+Escribe en Odoo (`--aplicar` + `SINCRO_PERMITIR_APLICAR=si`). Para volver a
+simulación sin tocar el cron: `SINCRO_PERMITIR_APLICAR=no` en el `.env`.
+
+Si una corrida se corta a mano (Ctrl-C) queda `en_curso` y sin `.json`. Se
+cierra con el token de servicio:
+
+```bash
+TOKEN=$(grep '^SINCRO_ODOO_DEPOFIS_SERVICE_TOKEN=' .env | cut -d= -f2-)
+curl -s -X POST localhost:3038/api/servicio/corridas/<id>/cerrar   -H 'Content-Type: application/json' -H "x-sincro-odoo-depofis-token: $TOKEN"   -d '{"estado":"fallida","error":"Interrumpida a mano"}'
+unset TOKEN
+```
 
 Si `which python3` no da `/usr/bin/python3` (o `psycopg2` está en otro
 intérprete), poner en la línea del cron la ruta del que funcionó en el paso 4.
@@ -138,10 +153,14 @@ intérprete), poner en la línea del cron la ruta del que funcionó en el paso 4
 
 ## Checklist de este cambio (0.1 → 0.2, DEPOFIS → Odoo)
 
-- [ ] `git pull --ff-only` limpio
-- [ ] `aplicar_sql.py --apply` (aplica `022` y rehace las vistas de `030`)
-- [ ] `npx tsc -p tsconfig.app.json --noEmit && npm run build`, restart, health OK
-- [ ] variables `DEPOFIS_*` borradas del `.env`
-- [ ] corrida de simulación publicada; en la app se ven altas y vinculaciones
-- [ ] primera escritura con `--limite 1`, verificada a mano en Odoo
-- [ ] cron cargado
+Hecho el 2026-10-09:
+
+- [x] `git pull --ff-only` limpio
+- [x] `aplicar_sql.py --apply` (aplica `022` y rehace las vistas de `030`)
+- [x] build, restart, health OK
+- [x] corrida de simulación publicada (#12)
+- [x] primera escritura con `--limite 1` (#14), verificada en Odoo
+- [x] resto aplicado (#15 cortada a mano, #16 ok): 25 altas, 62 vinculaciones,
+      3 conceptos — verificados contra DEPOFIS, 0 inconsistencias
+- [x] cron cargado
+- [ ] variables `DEPOFIS_*` borradas del `.env` (confirmar)
