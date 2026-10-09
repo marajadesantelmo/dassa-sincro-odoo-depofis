@@ -1,14 +1,14 @@
 {
   "$schema": "https://apps.dassa.com.ar/manifest.schema.json",
   "schema_version": "2.0",
-  "name": "Sincro Odoo → DEPOFIS",
+  "name": "Sincro DEPOFIS → Odoo",
   "app_key": "sincro-odoo-depofis",
   "version": "0.1.0",
   "type": "child_app",
   "parent_app": "smart-dassa-apps",
   "owner": "facundo@pymetech.com.ar",
   "criticality": "medium",
-  "description": "Ventana a la sincronización de maestros de Odoo hacia DEPOFIS. Muestra las novedades detectadas en cada corrida — clientes y conceptos dados de alta en Odoo que faltan en DEPOFIS — con el vendedor y la condición de Cliente DASSA ya traducidos al código de DEPOFIS. Arranca en modo simulación: detecta y muestra, no escribe.",
+  "description": "Ventana a la sincronización de maestros de DEPOFIS hacia Odoo. Muestra, en cada corrida, los clientes y conceptos de DEPOFIS que se dan de alta en Odoo y los clientes que existen en Odoo por CUIT y se vinculan con su Código DEPOFIS, con el vendedor ya traducido a Salesperson. DEPOFIS sólo se lee. Arranca en modo simulación.",
   "url_path": "/sincro-odoo-depofis/",
   "port": 3038,
   "icon": "🔄",
@@ -66,14 +66,14 @@
     {
       "type": "odoo_xmlrpc",
       "target": "https://gestion.dassa.com.ar",
-      "access": "read-only",
-      "purpose": "res.partner y product.template — los maestros que se comparan contra DEPOFIS"
+      "access": "read-write: sólo create de res.partner/product.template y write de res.partner, con lista cerrada de campos, y sólo en modo aplicación",
+      "purpose": "res.partner y product.template — donde se dan de alta y se vinculan los maestros de DEPOFIS"
     },
     {
-      "type": "sqlserver",
-      "target": "101.44.8.58:1436 · DEPOFIS.DASSA",
-      "access": "read-only mientras la rutina corra en modo simulación",
-      "purpose": "DASSA.Clientes y DASSA.Concepfc — contra qué se compara, y dónde se daría el alta"
+      "type": "postgres",
+      "target": "depofis_mirror @ smart-dassa-central (smartdassa_satellite_reader)",
+      "access": "read-only — DEPOFIS nunca se escribe",
+      "purpose": "DASSA.Clientes y DASSA.Concepfc vía el espejo: el maestro que se lleva a Odoo"
     },
     {
       "type": "service_token",

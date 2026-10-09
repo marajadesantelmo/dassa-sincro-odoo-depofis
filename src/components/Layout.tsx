@@ -60,7 +60,7 @@ export default function Layout() {
 
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/" className="font-extrabold tracking-tight text-sm sm:text-base truncate hover:opacity-90">
-            Sincro Odoo <span className="opacity-70">→</span> DEPOFIS
+            Sincro DEPOFIS <span className="opacity-70">→</span> Odoo
           </Link>
         </div>
 
@@ -75,7 +75,7 @@ export default function Layout() {
           <NavLink
             to="/vendedores"
             className={({ isActive }) => `${NAV} ${isActive ? 'bg-white text-dassa' : 'bg-white/15 text-white hover:bg-white/25'}`}
-            title="Cómo se traduce el vendedor de Odoo al código de DEPOFIS"
+            title="Cómo se traduce el vendedor de DEPOFIS al Salesperson de Odoo"
           >
             👤 <span className="hidden sm:inline">Vendedores</span>
           </NavLink>
@@ -111,7 +111,7 @@ export default function Layout() {
             va un link de login — no arregla nada y sólo lo hace dar vueltas. */}
         {!cargando && !me && falla === 'sin-acceso' && (
           <BannerError>
-            <p className="font-bold">Todavía no tenés acceso a Sincro Odoo → DEPOFIS.</p>
+            <p className="font-bold">Todavía no tenés acceso a Sincro DEPOFIS → Odoo.</p>
             <p className="mt-1 text-xs">
               Tu sesión de Apps DASSA está bien: lo que falta es que te habiliten esta app.
               Volver a iniciar sesión no lo resuelve.
@@ -137,7 +137,7 @@ export default function Layout() {
       </main>
 
       <footer className="text-center text-[10px] text-slate-400 py-4">
-        dassa-sincro-odoo-depofis · maestros de Odoo contra DEPOFIS · la rutina corre aparte, esto es la ventana
+        dassa-sincro-odoo-depofis · maestros de DEPOFIS hacia Odoo · la rutina corre aparte, esto es la ventana
       </footer>
     </div>
   );

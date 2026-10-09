@@ -31,27 +31,3 @@ export function duracion(ms: number | null): string {
   if (s < 90) return `${s.toFixed(1)} s`;
   return `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
 }
-
-/**
- * Cómo se lee el vendedor de una fila.
- *
- * Devuelve las dos mitades por separado porque la pantalla las pinta distinto:
- * el nombre es el dato de Odoo y el código es lo que va a DEPOFIS, y confundir
- * uno con otro es exactamente lo que esta app tiene que evitar.
- */
-export function vendedorLegible(n: {
-  vendedor_nombre: string | null;
-  es_dassa: boolean | null;
-  vendedor_depofis: number | null;
-}): { nombre: string; codigo: string; cual: string; resuelto: boolean } {
-  const nombre = n.vendedor_nombre || 'sin Salesperson';
-  if (n.vendedor_depofis == null) {
-    return { nombre, codigo: '—', cual: '', resuelto: false };
-  }
-  return {
-    nombre,
-    codigo: String(n.vendedor_depofis),
-    cual: n.es_dassa ? 'institucional' : 'propio',
-    resuelto: true,
-  };
-}

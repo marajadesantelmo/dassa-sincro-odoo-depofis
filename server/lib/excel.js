@@ -12,44 +12,41 @@ import ExcelJS from 'exceljs';
 
 const ROJO_DASSA = 'FFC8202C';
 
-/** Columnas de la hoja de clientes. El vendedor va desarmado en tres columnas
- *  porque es lo que hay que poder auditar de un vistazo. */
+/** Columnas de la hoja de clientes. Cada fila es un cliente de DEPOFIS y lo
+ *  que se hace (o se haría) con él en Odoo. */
 const COLUMNAS_CLIENTE = [
-  { header: 'Odoo ID', key: 'odoo_id', width: 10 },
-  { header: 'Nombre', key: 'odoo_nombre', width: 42 },
+  { header: 'clie_nro', key: 'depofis_id', width: 10 },
+  { header: 'Nombre (DEPOFIS)', key: 'odoo_nombre', width: 42 },
   { header: 'CUIT', key: 'clave', width: 16 },
   { header: 'Acción', key: 'accion', width: 10 },
+  { header: 'Ejecutada', key: 'ejecutada', width: 10 },
   { header: 'Nueva', key: 'es_nueva', width: 8 },
   { header: 'Requiere atención', key: 'requiere_atencion', width: 18 },
+  { header: 'Vendedor DEPOFIS', key: 'vendedor_depofis', width: 17 },
   { header: 'Salesperson (Odoo)', key: 'vendedor_nombre', width: 24 },
   { header: 'Cliente DASSA', key: 'es_dassa', width: 14 },
-  { header: 'Vendedor DEPOFIS', key: 'vendedor_depofis', width: 17 },
-  { header: 'Categoría', key: 'categoria', width: 20 },
-  { header: 'Cond. IVA', key: 'iva', width: 10 },
-  { header: 'clie_nro', key: 'depofis_id', width: 10 },
+  { header: 'Categoría DEPOFIS', key: 'categoria', width: 20 },
+  { header: 'Contacto Odoo (id)', key: 'odoo_id', width: 18 },
   { header: 'Motivo', key: 'motivo', width: 60 },
 ];
 
 const COLUMNAS_CONCEPTO = [
-  { header: 'Odoo ID', key: 'odoo_id', width: 10 },
-  { header: 'Nombre', key: 'odoo_nombre', width: 52 },
-  { header: 'Referencia Interna', key: 'clave', width: 18 },
+  { header: 'Código', key: 'clave', width: 12 },
+  { header: 'Detalle (DEPOFIS)', key: 'odoo_nombre', width: 52 },
   { header: 'Acción', key: 'accion', width: 10 },
+  { header: 'Ejecutada', key: 'ejecutada', width: 10 },
   { header: 'Nueva', key: 'es_nueva', width: 8 },
   { header: 'Requiere atención', key: 'requiere_atencion', width: 18 },
-  { header: 'Unidad de cálculo', key: 'calcula', width: 18 },
   { header: 'Grupo', key: 'grupo', width: 26 },
-  { header: 'código', key: 'depofis_id', width: 10 },
+  { header: 'Producto Odoo (id)', key: 'odoo_id', width: 18 },
   { header: 'Motivo', key: 'motivo', width: 60 },
 ];
 
-/** Lo descartado por el filtro de alcance. Va aparte y con columnas propias:
- *  de estas filas no hay payload ni vendedor que auditar, sólo el motivo. */
+/** Las filas de Concepfc que no son conceptos (separadores, "NO USAR", la
+ *  fila de prueba). Van aparte: no hay nada que auditar salvo el motivo. */
 const COLUMNAS_FUERA = [
-  { header: 'Tipo', key: 'tipo', width: 14 },
-  { header: 'Odoo ID', key: 'odoo_id', width: 10 },
-  { header: 'Nombre', key: 'odoo_nombre', width: 52 },
-  { header: 'CUIT / Referencia', key: 'clave', width: 18 },
+  { header: 'Código', key: 'clave', width: 14 },
+  { header: 'Detalle', key: 'odoo_nombre', width: 52 },
   { header: 'Motivo', key: 'motivo', width: 80 },
 ];
 
@@ -66,75 +63,75 @@ function encabezar(hoja) {
 const si_no = (v) => (v === true ? 'SÍ' : v === false ? 'no' : '');
 
 function filaCliente(n) {
-  const p = n.payload || {};
+  const d = (n.payload && n.payload.depofis) || {};
   return {
-    odoo_id: n.odoo_id,
+    depofis_id: n.depofis_id || '',
     odoo_nombre: n.odoo_nombre,
     clave: n.clave || '',
     accion: n.accion,
+    ejecutada: si_no(n.ejecutada),
     es_nueva: n.es_nueva ? 'NUEVA' : '',
     requiere_atencion: n.requiere_atencion ? 'SÍ' : '',
+    vendedor_depofis: n.vendedor_depofis == null ? '' : n.vendedor_depofis,
     vendedor_nombre: n.vendedor_nombre || '(sin Salesperson)',
     es_dassa: si_no(n.es_dassa),
-    // Se escribe el string vacío y no un 0: un vendedor sin resolver no es el
-    // vendedor cero, que en DEPOFIS es un código real (523 clientes).
-    vendedor_depofis: n.vendedor_depofis == null ? '' : n.vendedor_depofis,
-    categoria: p.tipo_cl || '',
-    iva: p.iva == null ? '' : p.iva,
-    depofis_id: n.depofis_id || '',
+    categoria: d.tipo_cl || '',
+    odoo_id: n.odoo_id ?? '',
     motivo: n.motivo || '',
   };
 }
 
 function filaConcepto(n) {
-  const p = n.payload || {};
+  const d = (n.payload && n.payload.depofis) || {};
   return {
-    odoo_id: n.odoo_id,
-    odoo_nombre: n.odoo_nombre,
     clave: n.clave || '',
+    odoo_nombre: n.odoo_nombre,
     accion: n.accion,
+    ejecutada: si_no(n.ejecutada),
     es_nueva: n.es_nueva ? 'NUEVA' : '',
     requiere_atencion: n.requiere_atencion ? 'SÍ' : '',
-    calcula: p.calcula || '',
-    grupo: p.grupo || '',
-    depofis_id: n.depofis_id || '',
+    grupo: d.grupo || '',
+    odoo_id: n.odoo_id ?? '',
     motivo: n.motivo || '',
   };
 }
 
 /** Portada: qué corrida es esta y en qué modo corrió. Sin esto, un .xlsx
- *  suelto en un mail no dice si lo que muestra ya se escribió en DEPOFIS. */
+ *  suelto en un mail no dice si lo que muestra ya se escribió en Odoo. */
 function hojaResumen(libro, corrida) {
   const hoja = libro.addWorksheet('Corrida');
   hoja.columns = [{ width: 26 }, { width: 60 }];
 
+  const t = corrida.totales || {};
+  const tc = t.clientes || {};
+  const tk = t.conceptos || {};
   const filas = [
     ['Corrida', `#${corrida.id}`],
     ['Modo', corrida.modo === 'aplicacion'
-      ? 'APLICACIÓN — estas altas SÍ se escribieron en DEPOFIS'
-      : 'SIMULACIÓN — no se escribió nada en DEPOFIS'],
+      ? 'APLICACIÓN — lo marcado como ejecutado SÍ se escribió en Odoo'
+      : 'SIMULACIÓN — no se escribió nada en Odoo'],
     ['Estado', corrida.estado],
     ['Origen', corrida.origen],
     ['Disparada por', corrida.disparada_por || '(automática)'],
     ['Inicio', corrida.iniciada_en],
     ['Fin', corrida.terminada_en],
     ['Odoo', corrida.odoo_db || ''],
-    ['DEPOFIS leído de', corrida.fuente === 'espejo'
-      ? `espejo (${corrida.depofis_server || 'depofis_mirror'})`
-      : `origen (${corrida.depofis_server || 'SQL Server'})`],
+    ['DEPOFIS leído de', `espejo (${corrida.depofis_server || 'depofis_mirror'}) — sólo lectura`],
     ['Espejo actualizado al', corrida.fuente_sincronizada_en || '—'],
     [],
-    ['Analizados', corrida.en_alcance],
-    ['Fuera de alcance', corrida.fuera_alcance],
-    ['  · proveedores', corrida.fuera_alcance_clientes],
-    ['  · sub-conceptos', corrida.fuera_alcance_conceptos],
-    ['Altas', corrida.altas],
-    ['  · clientes', corrida.altas_clientes],
-    ['  · conceptos', corrida.altas_conceptos],
-    ['Omitidos', corrida.omitidos],
+    ['A sincronizar en Odoo', corrida.a_sincronizar],
+    ['  · altas de clientes', corrida.altas_clientes],
+    ['  · clientes a vincular', corrida.vinculaciones],
+    ['  · altas de conceptos', corrida.altas_conceptos],
+    ['Ejecutadas', corrida.ejecutadas],
+    ['Altas sin Salesperson', corrida.altas_sin_vendedor],
+    ['Omitidos (no se pueden)', corrida.omitidos],
     ['Errores', corrida.errores],
-    ['Requieren atención', corrida.requieren_atencion],
-    ['Altas sin vendedor resuelto', corrida.altas_sin_vendedor],
+    [],
+    ['Clientes ya sincronizados', tc.sin_cambios ?? ''],
+    ['Clientes inactivos (no se miran)', tc.inactivos ?? ''],
+    ['Conceptos ya en Odoo', tk.sin_cambios ?? ''],
+    ['Filas de Concepfc que no son conceptos', corrida.fuera_alcance_conceptos],
   ];
   for (const f of filas) hoja.addRow(f);
 
@@ -145,15 +142,13 @@ function hojaResumen(libro, corrida) {
 
 export async function armarLibro({ corrida, novedades }) {
   const libro = new ExcelJS.Workbook();
-  libro.creator = 'Sincro Odoo → DEPOFIS · DASSA';
+  libro.creator = 'Sincro DEPOFIS → Odoo · DASSA';
   libro.created = new Date();
 
   hojaResumen(libro, corrida);
 
-  // Lo que quedó fuera de alcance —proveedores y sub-conceptos— va en su propia
-  // hoja, no mezclado en Clientes y Conceptos. Así esas dos hojas tienen
-  // exactamente las filas que muestra la pantalla, y el archivo sigue siendo el
-  // registro completo: se exporta todo, pero cada cosa donde corresponde.
+  // Lo que quedó fuera de alcance va en su propia hoja, no mezclado en Clientes
+  // y Conceptos: se exporta todo, pero cada cosa donde corresponde.
   const enAlcance = novedades.filter((n) => n.accion !== 'fuera_alcance');
   const fuera = novedades.filter((n) => n.accion === 'fuera_alcance');
 
@@ -168,11 +163,9 @@ export async function armarLibro({ corrida, novedades }) {
   encabezar(hojaK);
 
   if (fuera.length) {
-    const hojaF = libro.addWorksheet('Fuera de alcance');
+    const hojaF = libro.addWorksheet('No son conceptos');
     hojaF.columns = COLUMNAS_FUERA;
     fuera.forEach((n) => hojaF.addRow({
-      tipo: n.tipo === 'cliente' ? 'proveedor' : 'sub-concepto',
-      odoo_id: n.odoo_id,
       odoo_nombre: n.odoo_nombre,
       clave: n.clave || '',
       motivo: n.motivo || '',
@@ -180,14 +173,14 @@ export async function armarLibro({ corrida, novedades }) {
     encabezar(hojaF);
   }
 
-  // El mapeo usado va en el libro: sin él, la columna "Vendedor DEPOFIS" es un
-  // número sin explicación para quien abra el archivo en otra máquina.
+  // El mapeo usado va en el libro: sin él, el pase de "Vendedor DEPOFIS" a
+  // Salesperson no tiene explicación para quien abra el archivo en otra máquina.
   const hojaV = libro.addWorksheet('Mapeo vendedores');
   hojaV.columns = [
     { header: 'uid Odoo', key: 'uid', width: 10 },
     { header: 'Salesperson', key: 'nombre', width: 28 },
-    { header: 'Código propio (Cliente DASSA = no)', key: 'propio', width: 32 },
-    { header: 'Código institucional (Cliente DASSA = sí)', key: 'institucional', width: 38 },
+    { header: 'Código propio → Cliente DASSA = no', key: 'propio', width: 32 },
+    { header: 'Código institucional → Cliente DASSA = sí', key: 'institucional', width: 38 },
   ];
   for (const [uid, v] of Object.entries(corrida.vendedor_map || {})) {
     hojaV.addRow({ uid: Number(uid), nombre: v.nombre, propio: v.propio, institucional: v.institucional });
@@ -199,5 +192,5 @@ export async function armarLibro({ corrida, novedades }) {
 
 export function nombreArchivo(corrida) {
   const fecha = new Date(corrida.iniciada_en).toISOString().slice(0, 10);
-  return `Sincro Odoo-DEPOFIS ${fecha} corrida ${corrida.id} (${corrida.modo}).xlsx`;
+  return `Sincro DEPOFIS-Odoo ${fecha} corrida ${corrida.id} (${corrida.modo}).xlsx`;
 }

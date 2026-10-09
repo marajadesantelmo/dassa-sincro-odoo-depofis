@@ -4,6 +4,11 @@
  * Sin `:id` en la URL muestra la última corrida; con `:id`, esa. Es la misma
  * pantalla porque es la misma información: una corrida vieja no se lee distinto
  * de la de hoy, y así se puede mandar por mail el link de una corrida puntual.
+ *
+ * Por default muestra SÓLO lo que se sube o se modifica en Odoo (altas,
+ * vinculaciones, y los errores al intentarlo). Lo que no se puede sincronizar
+ * (omitidos) y lo que no es asunto de la rutina (fuera de alcance) queda detrás
+ * de su propio filtro, separado: está para auditar, no para trabajar desde ahí.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext, useParams } from 'react-router-dom';
@@ -17,24 +22,9 @@ import {
   Chip, KPI, Seccion, TituloPagina, Vacio,
 } from '../components/ui';
 
-type Filtro = 'todas' | 'altas' | 'atencion' | 'nuevas' | 'omitidas' | 'errores' | 'fuera';
+type Filtro = 'sincronizar' | 'altas' | 'vincular' | 'atencion' | 'nuevas' | 'omitidas' | 'fuera';
 
-// Lo que queda fuera de alcance se llama distinto en cada solapa, porque el
-// motivo es distinto: en clientes son proveedores, en conceptos son los
-// tramos de dias de otro concepto. Un solo filtro, dos nombres.
-const EXCLUIDAS = {
-  cliente: 'Proveedores',
-  concepto: 'Sub-conceptos',
-} as const;
-
-// El subtitulo del KPI "Analizados". Nombra lo que se descarto en vez de decir
-// un numero pelado: si el dia de manana el filtro se pasa de largo, se ve aca.
-function subExcluidos(c: Corrida): string {
-  const partes: string[] = [];
-  if (c.fuera_alcance_clientes) partes.push(`${c.fuera_alcance_clientes} proveedores`);
-  if (c.fuera_alcance_conceptos) partes.push(`${c.fuera_alcance_conceptos} sub-conceptos`);
-  return partes.length ? `${partes.join(' · ')} fuera de alcance` : 'registros de Odoo mirados';
-}
+const SE_SINCRONIZA = new Set(['alta', 'vincular', 'error']);
 
 export default function Novedades() {
   const { me } = useOutletContext<ContextoLayout>();
@@ -45,7 +35,7 @@ export default function Novedades() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tipo, setTipo] = useState<TipoNovedad>('cliente');
-  const [filtro, setFiltro] = useState<Filtro>('todas');
+  const [filtro, setFiltro] = useState<Filtro>('sincronizar');
   const [bajando, setBajando] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -74,49 +64,46 @@ export default function Novedades() {
   useEffect(() => { void cargar(); }, [cargar]);
 
   // Los filtros se aplican acá y no pidiéndole otra vez al server: la corrida
-  // entera ya está en memoria (~460 filas) y cada click sería un viaje de red.
-  // El .xlsx sí lo arma el server, y va sin filtros: es el registro completo,
-  // con lo fuera de alcance en su propia hoja.
+  // entera ya está en memoria y cada click sería un viaje de red. El .xlsx sí
+  // lo arma el server, y va sin filtros: es el registro completo.
   const visibles = useMemo(() => {
     const delTipo = novedades.filter((n) => n.tipo === tipo);
-    // Lo excluido NO entra en ninguna vista salvo la suya. "Todas" quiere decir
-    // "todas las que esta rutina analiza", no "todas las filas que hay": con 61
-    // proveedores sobre 118 contactos y 78 sub-conceptos sobre 345 productos,
-    // incluirlos convertía la pantalla en una lista que nadie iba a leer.
-    const enAlcance = delTipo.filter((n) => n.accion !== 'fuera_alcance');
+    const aSincronizar = delTipo.filter((n) => SE_SINCRONIZA.has(n.accion));
     switch (filtro) {
-      case 'altas': return enAlcance.filter((n) => n.accion === 'alta');
-      case 'atencion': return enAlcance.filter((n) => n.requiere_atencion);
-      case 'nuevas': return enAlcance.filter((n) => n.es_nueva);
-      case 'omitidas': return enAlcance.filter((n) => n.accion === 'omitido');
-      case 'errores': return enAlcance.filter((n) => n.accion === 'error');
+      case 'altas': return aSincronizar.filter((n) => n.accion === 'alta');
+      case 'vincular': return aSincronizar.filter((n) => n.accion === 'vincular');
+      case 'atencion': return aSincronizar.filter((n) => n.requiere_atencion);
+      case 'nuevas': return aSincronizar.filter((n) => n.es_nueva);
+      case 'omitidas': return delTipo.filter((n) => n.accion === 'omitido');
       case 'fuera': return delTipo.filter((n) => n.accion === 'fuera_alcance');
-      default: return enAlcance;
+      default: return aSincronizar;
     }
   }, [novedades, tipo, filtro]);
 
   const cuenta = useMemo(() => {
     const delTipo = novedades.filter((n) => n.tipo === tipo);
-    const t = delTipo.filter((n) => n.accion !== 'fuera_alcance');
+    const t = delTipo.filter((n) => SE_SINCRONIZA.has(n.accion));
     return {
-      todas: t.length,
+      sincronizar: t.length,
       altas: t.filter((n) => n.accion === 'alta').length,
+      vincular: t.filter((n) => n.accion === 'vincular').length,
       atencion: t.filter((n) => n.requiere_atencion).length,
       nuevas: t.filter((n) => n.es_nueva).length,
-      omitidas: t.filter((n) => n.accion === 'omitido').length,
-      errores: t.filter((n) => n.accion === 'error').length,
+      omitidas: delTipo.filter((n) => n.accion === 'omitido').length,
       fuera: delTipo.filter((n) => n.accion === 'fuera_alcance').length,
     };
   }, [novedades, tipo]);
 
-  // Las dos solapas tienen exclusiones, pero no siempre las dos a la vez: si la
-  // solapa a la que se va no tiene ninguna, el filtro dejaría una tabla vacía
-  // sin explicación. En ese caso se vuelve a "Todas".
+  const porTipo = useMemo(() => ({
+    cliente: novedades.filter((n) => n.tipo === 'cliente' && SE_SINCRONIZA.has(n.accion)).length,
+    concepto: novedades.filter((n) => n.tipo === 'concepto' && SE_SINCRONIZA.has(n.accion)).length,
+  }), [novedades]);
+
+  // Un filtro que no existe en la otra solapa (vincular es sólo de clientes,
+  // fuera de alcance sólo de conceptos) dejaría la tabla vacía sin explicación.
   function cambiarTipo(t: TipoNovedad) {
     setTipo(t);
-    if (filtro === 'fuera' && !novedades.some((n) => n.tipo === t && n.accion === 'fuera_alcance')) {
-      setFiltro('todas');
-    }
+    if (filtro === 'vincular' || filtro === 'fuera') setFiltro('sincronizar');
   }
 
   async function exportar() {
@@ -135,8 +122,6 @@ export default function Novedades() {
   if (cargando) return <Cargando label="Buscando la última corrida" />;
   if (error) return <BannerError>{error}</BannerError>;
 
-  // Estado inicial del proyecto: la app está deployada y la rutina todavía no
-  // corrió. No es un error y no debería verse como uno.
   if (!corrida) {
     return (
       <>
@@ -145,8 +130,7 @@ export default function Novedades() {
           <p className="font-semibold text-slate-500">La rutina todavía no corrió.</p>
           <p className="mt-2 text-xs max-w-lg mx-auto">
             Esta pantalla se llena cuando <code className="font-mono">sincronizar.py</code> publica su
-            primera corrida. Mientras tanto no hay nada que mirar — y no hay nada
-            escrito en DEPOFIS.
+            primera corrida. Mientras tanto no hay nada que mirar — y no se escribió nada en Odoo.
           </p>
           <p className="mt-2 text-xs">
             <Link to="/ayuda" className="text-dassa underline font-semibold">Cómo se dispara la rutina</Link>
@@ -156,8 +140,13 @@ export default function Novedades() {
     );
   }
 
+  // Una corrida 0.1 iba al revés (Odoo → DEPOFIS). Se puede abrir desde el
+  // historial, pero hay que decirlo: sus filas no significan lo mismo.
+  const esVieja = (corrida.version_rutina || '').startsWith('0.1.');
   const esUltima = !id;
   const puedeExportar = me.permissions.includes('sincro.exportar');
+  const tc = corrida.totales?.clientes || {};
+  const tk = corrida.totales?.conceptos || {};
 
   return (
     <>
@@ -183,33 +172,36 @@ export default function Novedades() {
         }
       />
 
-      {/* Lo primero que hay que saber al abrir la pantalla: si esto ya se
-          escribió o no. Con el proyecto en evaluación, siempre es lo segundo. */}
-      {corrida.modo === 'simulacion' ? (
-        <BannerInfo>
-          <strong>Simulación.</strong> Nada de esto se escribió en DEPOFIS: es lo que la rutina
-          <em> haría</em> si se la habilitara. Las {corrida.altas} altas de abajo están calculadas,
-          no ejecutadas.
-        </BannerInfo>
-      ) : (
+      {esVieja && (
         <BannerAlerta>
-          <strong>Aplicación.</strong> Las {corrida.altas} altas de esta corrida SÍ se escribieron
-          en DEPOFIS.
+          <strong>Corrida de la versión anterior (Odoo → DEPOFIS).</strong> Esa versión comparaba en
+          el sentido contrario y sus filas no significan lo mismo que las de ahora. Se conserva como
+          registro histórico.
         </BannerAlerta>
       )}
 
-      {/* De dónde salió el lado DEPOFIS. Con el espejo, el informe se arma
-          sobre una copia diaria: decirlo con la fecha evita que alguien lea
-          "falta dar de alta" de un cliente que se cargó esta mañana. */}
-      {corrida.fuente === 'espejo' && (
+      {/* Lo primero que hay que saber al abrir la pantalla: si esto ya se
+          escribió en Odoo o no. */}
+      {corrida.modo === 'simulacion' ? (
         <BannerInfo>
-          El lado DEPOFIS se leyó del <strong>espejo</strong> (`depofis_mirror`), no del SQL Server.
-          {corrida.fuente_sincronizada_en
-            ? <> Última sincronización del espejo: <strong>{fechaHora(corrida.fuente_sincronizada_en)}</strong>.</>
-            : null}
-          {' '}Lo que se haya cargado en DEPOFIS después de esa hora todavía no se ve acá.
+          <strong>Simulación.</strong> Nada de esto se escribió en Odoo: es lo que la rutina
+          <em> haría</em>. DEPOFIS sólo se lee — la rutina no puede escribirle.
         </BannerInfo>
+      ) : (
+        <BannerAlerta>
+          <strong>Aplicación.</strong> {corrida.ejecutadas} de {corrida.a_sincronizar} cambios se
+          escribieron en Odoo y se verificaron (marcados con ✓).
+          {corrida.ejecutadas < corrida.a_sincronizar && ' El resto no se ejecutó (tope --limite).'}
+        </BannerAlerta>
       )}
+
+      <BannerInfo>
+        DEPOFIS se leyó del <strong>espejo</strong> (<code className="font-mono">depofis_mirror</code>).
+        {corrida.fuente_sincronizada_en
+          ? <> Última sincronización del espejo: <strong>{fechaHora(corrida.fuente_sincronizada_en)}</strong>.</>
+          : null}
+        {' '}Lo que se haya cargado en DEPOFIS después de esa hora todavía no se ve acá.
+      </BannerInfo>
 
       {corrida.estado === 'fallida' && corrida.error && (
         <BannerError>
@@ -218,22 +210,19 @@ export default function Novedades() {
         </BannerError>
       )}
 
-      {corrida.anterior_id == null && (
+      {corrida.anterior_id == null && !esVieja && (
         <BannerInfo>
           Es la primera corrida: no hay una anterior contra la cual comparar, así que todavía
-          no hay nada marcado como <strong>NUEVA</strong>. A partir de la próxima, la marca
-          señala lo que apareció desde la última vez.
+          no hay nada marcado como <strong>NUEVA</strong>.
         </BannerInfo>
       )}
 
       {corrida.altas_sin_vendedor > 0 && (
         <BannerAlerta>
           <strong>{corrida.altas_sin_vendedor} de las {corrida.altas_clientes} altas de cliente
-          quedarían sin vendedor.</strong>{' '}
-          Son contactos sin <em>Salesperson</em> asignado en Odoo. La rutina no inventa un
-          código: los daría de alta con <code className="font-mono">vendedor</code> en NULL.
-          Se arregla cargando el Salesperson en la ficha del contacto en Odoo, antes de
-          habilitar la escritura.{' '}
+          entran a Odoo sin Salesperson.</strong>{' '}
+          Su vendedor en DEPOFIS (0, 1, 2, 9 o 19) no tiene usuario en Odoo. Se dan de alta igual;
+          el Salesperson hay que asignarlo a mano en la ficha del contacto.{' '}
           <button type="button" className="underline font-semibold"
                   onClick={() => { setTipo('cliente'); setFiltro('atencion'); }}>
             Ver cuáles
@@ -242,20 +231,21 @@ export default function Novedades() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KPI titulo="Analizados" valor={corrida.en_alcance}
-             sub={subExcluidos(corrida)} />
-        <KPI titulo="Altas" valor={corrida.altas} acento="verde"
+        <KPI titulo="Altas en Odoo" valor={corrida.altas} acento="verde"
              sub={`${corrida.altas_clientes} clientes · ${corrida.altas_conceptos} conceptos`} />
-        <KPI titulo="Omitidos" valor={corrida.omitidos} sub="ya existían o les falta un dato" />
-        <KPI titulo="Requieren atención" valor={corrida.requieren_atencion}
-             acento={corrida.requieren_atencion ? 'ambar' : 'slate'}
-             sub="alguien tiene que hacer algo" />
-        <KPI titulo="Sin vendedor" valor={corrida.altas_sin_vendedor}
+        <KPI titulo="A vincular" valor={corrida.vinculaciones}
+             sub="existen en Odoo por CUIT, sin Código DEPOFIS" />
+        <KPI titulo="Sin Salesperson" valor={corrida.altas_sin_vendedor}
              acento={corrida.altas_sin_vendedor ? 'ambar' : 'slate'}
-             sub="altas de cliente sin Salesperson" />
+             sub="altas de cliente" />
+        <KPI titulo="No se pueden" valor={corrida.omitidos}
+             acento={corrida.omitidos ? 'ambar' : 'slate'}
+             sub="CUIT inválido o duplicados" />
         <KPI titulo="Errores" valor={corrida.errores}
              acento={corrida.errores ? 'rojo' : 'slate'}
-             sub="DEPOFIS los rechazó" />
+             sub="Odoo los rechazó" />
+        <KPI titulo="Ya sincronizados" valor={(tc.sin_cambios ?? 0) + (tk.sin_cambios ?? 0)}
+             sub={`${tc.sin_cambios ?? 0} clientes · ${tk.sin_cambios ?? 0} conceptos`} />
       </div>
 
       <Seccion
@@ -263,61 +253,55 @@ export default function Novedades() {
           <span className="flex items-center gap-1">
             <button type="button" onClick={() => cambiarTipo('cliente')}
                     className={`px-2 py-1 rounded-md text-xs font-bold ${tipo === 'cliente' ? 'bg-dassa text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>
-              Clientes ({corrida.clientes - corrida.fuera_alcance_clientes})
+              Clientes ({porTipo.cliente})
             </button>
             <button type="button" onClick={() => cambiarTipo('concepto')}
                     className={`px-2 py-1 rounded-md text-xs font-bold ${tipo === 'concepto' ? 'bg-dassa text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>
-              Conceptos ({corrida.conceptos - corrida.fuera_alcance_conceptos})
+              Conceptos ({porTipo.concepto})
             </button>
           </span>
         }
         sub={tipo === 'cliente'
-          ? 'res.partner → DASSA.Clientes · sólo clientes: los proveedores van a DASSA.Proveed y no se sincronizan'
-          : 'product.template → DASSA.Concepfc · el código es la Referencia Interna de Odoo, sin los sub-conceptos (30055-30)'}
+          ? `DASSA.Clientes → res.partner · sólo clientes activos${tc.inactivos ? ` (${tc.inactivos} inactivos no se miran)` : ''}`
+          : 'DASSA.Concepfc → product.template · el código es la Referencia Interna de Odoo'}
         accion={
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            <Chip label="Todas" activo={filtro === 'todas'} count={cuenta.todas} onClick={() => setFiltro('todas')} />
+            <Chip label="A sincronizar" activo={filtro === 'sincronizar'} count={cuenta.sincronizar} onClick={() => setFiltro('sincronizar')} />
             <Chip label="Altas" activo={filtro === 'altas'} count={cuenta.altas} onClick={() => setFiltro('altas')} acento="ok" />
+            {tipo === 'cliente' && (
+              <Chip label="Vincular" activo={filtro === 'vincular'} count={cuenta.vincular} onClick={() => setFiltro('vincular')} />
+            )}
             <Chip label="Nuevas" activo={filtro === 'nuevas'} count={cuenta.nuevas} onClick={() => setFiltro('nuevas')} />
             <Chip label="Atención" activo={filtro === 'atencion'} count={cuenta.atencion} onClick={() => setFiltro('atencion')} acento="alerta" />
-            <Chip label="Omitidas" activo={filtro === 'omitidas'} count={cuenta.omitidas} onClick={() => setFiltro('omitidas')} />
-            {cuenta.errores > 0 && (
-              <Chip label="Errores" activo={filtro === 'errores'} count={cuenta.errores} onClick={() => setFiltro('errores')} acento="error" />
+            {/* Separado del resto a propósito: no es trabajo de sincronización,
+                es lo que no entra. Está para revisarlo, no para trabajar desde ahí. */}
+            {(cuenta.omitidas > 0 || cuenta.fuera > 0) && <span className="text-slate-300 select-none">|</span>}
+            {cuenta.omitidas > 0 && (
+              <Chip label="No se pueden" activo={filtro === 'omitidas'} count={cuenta.omitidas}
+                    onClick={() => setFiltro('omitidas')} acento="alerta" />
             )}
-            {/* Separado del resto a propósito: no es un filtro más sobre el
-                trabajo pendiente, es la puerta a lo que quedó afuera. Está para
-                poder auditar la exclusión, no para trabajar desde ahí. */}
             {cuenta.fuera > 0 && (
-              <>
-                <span className="text-slate-300 select-none">|</span>
-                <Chip label={EXCLUIDAS[tipo]} activo={filtro === 'fuera'} count={cuenta.fuera}
-                      onClick={() => setFiltro('fuera')} />
-              </>
+              <Chip label="No son conceptos" activo={filtro === 'fuera'} count={cuenta.fuera}
+                    onClick={() => setFiltro('fuera')} />
             )}
           </div>
         }
       >
-        {filtro === 'fuera' && tipo === 'cliente' && (
+        {filtro === 'omitidas' && (
           <BannerInfo>
-            <strong>Estos contactos quedaron fuera del análisis.</strong> Son proveedores: en
-            DEPOFIS viven en <code className="font-mono">DASSA.Proveed</code>, que esta rutina no
-            toca. El maestro de proveedores se administra en Odoo y no necesita estar espejado
-            en DEPOFIS. Se listan para poder revisar el filtro — si alguno de éstos es en
-            realidad un cliente, se corrige en Odoo asignándole el <em>Salesperson</em> o la
-            etiqueta de categoría comercial, y en la próxima corrida entra.
+            <strong>Estos registros de DEPOFIS no se pueden sincronizar solos.</strong> El motivo de
+            cada fila dice qué hay que corregir: un CUIT inválido se corrige en DEPOFIS; un contacto
+            duplicado en Odoo se fusiona en Odoo. En la próxima corrida entran solos.
           </BannerInfo>
         )}
-        {filtro === 'fuera' && tipo === 'concepto' && (
+        {filtro === 'fuera' && (
           <BannerInfo>
-            <strong>Estos productos quedaron fuera del análisis.</strong> Su Referencia Interna
-            tiene la forma <code className="font-mono">padre-sufijo</code>{' '}
-            (<code className="font-mono">30055-30</code>): no son conceptos, son los tramos de
-            días del concepto <code className="font-mono">30055</code>. Esa apertura existe en
-            Odoo y no en DEPOFIS, donde el concepto es uno solo y los días los resuelve el
-            cálculo. Darlos de alta duplicaría el código padre.
+            <strong>Estas filas de Concepfc no son conceptos:</strong> separadores de sección
+            (<code className="font-mono">----IMPORTACION MARITIMA----</code>), filas sin detalle,
+            conceptos marcados “NO USAR” y la fila de prueba 999999. No se llevan a Odoo.
           </BannerInfo>
         )}
-        <TablaNovedades novedades={visibles} tipo={tipo} />
+        <TablaNovedades key={tipo} novedades={visibles} tipo={tipo} />
       </Seccion>
     </>
   );

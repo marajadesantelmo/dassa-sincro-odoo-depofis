@@ -2,8 +2,8 @@
  * pages/Ayuda.tsx — qué hace la rutina y qué significa cada cosa.
  *
  * Escrita para que alguien que abre la app sin contexto entienda, sin
- * preguntar: (1) que hoy no se escribe nada, (2) qué es cada columna, (3) qué
- * tiene que hacer él cuando ve una fila marcada.
+ * preguntar: (1) en qué dirección va la sincronización y que DEPOFIS no se
+ * toca, (2) qué es cada marca, (3) qué hacer cuando ve una fila marcada.
  */
 import { BannerInfo, Seccion, TituloPagina } from '../components/ui';
 
@@ -22,55 +22,42 @@ export default function Ayuda() {
       <TituloPagina titulo="Ayuda" sub="Qué hace la rutina, qué mira esta pantalla y qué hacer con lo que muestra" />
 
       <BannerInfo>
-        <strong>Hoy la rutina no escribe nada en DEPOFIS.</strong> Corre en modo simulación:
-        compara Odoo contra DEPOFIS y publica acá lo que <em>haría</em>. Habilitar la escritura
-        es una decisión aparte, y necesita dos cambios deliberados en el servidor (ver
-        “Cómo se habilita”, abajo).
+        <strong>DEPOFIS → Odoo.</strong> Lo que se da de alta en DEPOFIS tiene que existir en Odoo.
+        La rutina lee DEPOFIS —sólo lee: no tiene forma de escribirle— y crea o completa lo que
+        falta en Odoo. Mientras la escritura no esté habilitada corre en simulación y publica
+        acá lo que <em>haría</em>.
       </BannerInfo>
 
       <Seccion titulo="Qué compara">
         <div className="p-3 text-xs space-y-3 text-slate-600">
           <div>
-            <p className="font-bold text-slate-700">Clientes · res.partner → DASSA.Clientes</p>
+            <p className="font-bold text-slate-700">Clientes · DASSA.Clientes → res.partner</p>
             <p className="mt-1">
-              Mira las empresas de Odoo que tienen CUIT cargado y todavía no tienen Código
-              DEPOFIS. De ésas, propone dar de alta las que además tengan una etiqueta que
-              corresponda a una categoría comercial de DEPOFIS.
+              Mira los clientes <strong>activos</strong> de DEPOFIS y los busca en Odoo, primero por
+              Código DEPOFIS y después por CUIT:
             </p>
+            <ul className="mt-1 ml-4 list-disc space-y-0.5">
+              <li>Si ya hay un contacto con ese Código DEPOFIS, no se toca nada.</li>
+              <li>Si no existe en Odoo, se <strong>da de alta</strong> con nombre, CUIT, condición
+                de IVA, dirección, email, Código DEPOFIS, el Salesperson y el check Cliente DASSA.</li>
+              <li>Si existe un contacto con el mismo CUIT pero sin Código DEPOFIS, se lo
+                <strong> vincula</strong>: se le carga el código y se completan sólo los datos que
+                tenga vacíos. Lo que alguien cargó a mano no se pisa.</li>
+            </ul>
             <p className="mt-1">
-              <strong>Sólo clientes.</strong> En Odoo los proveedores viven en la misma tabla
-              que los clientes; en DEPOFIS no, van a <code className="font-mono">DASSA.Proveed</code>,
-              que esta rutina no toca — ese maestro se administra en Odoo y no necesita estar
-              espejado. Un contacto queda <strong>fuera de alcance</strong> cuando hay
-              evidencia de que es proveedor —facturas de compra y ninguna de venta, o el CUIT
-              en <code className="font-mono">DASSA.Proveed</code>— y ninguna de que sea
-              cliente: estar ya en <code className="font-mono">DASSA.Clientes</code>, tener
-              facturas de venta, un <em>Salesperson</em>, el check <em>Cliente DASSA</em> o una
-              categoría comercial. No se cuentan como pendientes, pero se pueden ver con el
-              filtro <em>Proveedores</em> — cada fila explica por qué quedó afuera.
-            </p>
-            <p className="mt-1">
-              El <strong>vendedor</strong> se arma con dos campos de Odoo: el{' '}
-              <em>Salesperson</em> y el check <em>Cliente DASSA</em> de la pestaña DEPOFIS.
-              El detalle está en la pantalla <strong>Vendedores</strong>.
+              El <strong>Salesperson</strong> sale del vendedor de DEPOFIS: cada comercial tiene un
+              código propio y uno institucional (Cliente DASSA). El detalle está en la pantalla{' '}
+              <strong>Vendedores</strong>.
             </p>
           </div>
           <div>
-            <p className="font-bold text-slate-700">Conceptos · product.template → DASSA.Concepfc</p>
+            <p className="font-bold text-slate-700">Conceptos · DASSA.Concepfc → product.template</p>
             <p className="mt-1">
-              Mira los productos con <em>Referencia Interna</em> numérica cuyo código todavía no
-              exista en Concepfc. La unidad de cálculo se deriva del nombre, con la misma regla
-              que ya usa la prefacturación en producción: si dice “Almacenaje” y “Contenedor”,
-              se cobra por días; si dice “Almacenaje” sin “Contenedor”, por días × volumen.
-            </p>
-            <p className="mt-1">
-              <strong>Sin sub-conceptos.</strong> Una Referencia Interna con la forma{' '}
-              <code className="font-mono">padre-sufijo</code>{' '}
-              (<code className="font-mono">30055-30</code>) no es un concepto: es el tramo de
-              días del concepto <code className="font-mono">30055</code>, una apertura que existe
-              en Odoo y no en DEPOFIS, donde el concepto es uno solo y los días los resuelve el
-              cálculo. Quedan <strong>fuera de alcance</strong> y se ven con el filtro{' '}
-              <em>Sub-conceptos</em>.
+              El código de DEPOFIS es la <em>Referencia Interna</em> del producto en Odoo. Los
+              conceptos que no estén se dan de alta como servicio de venta con IVA 21%, en la
+              categoría que corresponde a su grupo — igual que los que ya están. Las filas de
+              Concepfc que no son conceptos (separadores, “NO USAR”, la fila de prueba 999999)
+              quedan afuera.
             </p>
           </div>
         </div>
@@ -78,34 +65,15 @@ export default function Ayuda() {
 
       <Seccion titulo="Qué significa cada marca">
         <div className="p-3 text-xs">
-          <Fila que="ALTA" dice="Falta en DEPOFIS y hay datos suficientes para crearlo. En simulación es lo que se crearía; en aplicación, lo que se creó." />
-          <Fila que="OMITIDO" dice="No corresponde crearlo. El motivo dice por qué: el CUIT ya existe, le falta la categoría, el código ya está en Concepfc." />
-          <Fila que="ERROR" dice="Se intentó el alta y DEPOFIS la rechazó. Sólo aparece en corridas de aplicación." />
-          <Fila que="PROVEEDOR" dice="No es un cliente: es un proveedor, y los proveedores no se sincronizan. No es trabajo pendiente. Aparece sólo con el filtro Proveedores, para poder revisar el criterio." />
-          <Fila que="SUB-CONCEPTO" dice="No es un concepto: es un tramo de días de otro concepto (30055-30 es el tramo de 30055). No se sincroniza ni es trabajo pendiente. Aparece sólo con el filtro Sub-conceptos." />
-          <Fila que="NUEVA" dice="Este registro no figuraba en la corrida anterior. Es lo que apareció desde la última vez que se miró." />
-          <Fila que="⚠ Atención" dice="Alguien tiene que hacer algo antes de habilitar el alta: falta el vendedor, hay que vincular el Código DEPOFIS en Odoo, o hay un dato que se resolvió por aproximación." />
-          <Fila que="sin resolver" dice="El contacto no tiene Salesperson en Odoo, así que no hay código de vendedor que mandar. Se arregla en Odoo, no acá." />
-        </div>
-      </Seccion>
-
-      <Seccion titulo="Qué hacer con lo que ves">
-        <div className="p-3 text-xs space-y-2 text-slate-600">
-          <p>
-            <strong>“El CUIT ya existe en DEPOFIS”</strong> — el cliente está cargado de los dos
-            lados pero no están vinculados. Hay que poner el Código DEPOFIS en la ficha del
-            contacto en Odoo. Mientras no se haga, va a aparecer en todas las corridas.
-          </p>
-          <p>
-            <strong>“Sin etiqueta que corresponda a una categoría de DEPOFIS”</strong> — hay que
-            ponerle en Odoo una etiqueta cuyo nombre coincida con una categoría comercial que
-            DEPOFIS ya use. La categoría es obligatoria para el alta.
-          </p>
-          <p>
-            <strong>“sin resolver” en Vendedor DEPOFIS</strong> — hay que asignarle el Salesperson
-            en Odoo. Si no, el cliente se daría de alta sin vendedor, y después habría que
-            corregirlo a mano en DEPOFIS.
-          </p>
+          <Fila que="ALTA" dice="No existe en Odoo: se crea. En simulación es lo que se crearía; en aplicación, con ✓, lo que se creó." />
+          <Fila que="VINCULAR" dice="Existe en Odoo con el mismo CUIT pero sin Código DEPOFIS: se le carga el código y se completan los datos vacíos." />
+          <Fila que="No se pueden" dice="Registros de DEPOFIS que no se pueden sincronizar solos. El motivo dice qué corregir: CUIT inválido, CUIT ya vinculado a otro código, contacto duplicado o archivado en Odoo." />
+          <Fila que="ERROR" dice="Se intentó escribir en Odoo y lo rechazó. Sólo aparece en corridas de aplicación." />
+          <Fila que="NO ES CONCEPTO" dice="Una fila de Concepfc que no es un concepto. No es trabajo pendiente; se ve sólo con su filtro." />
+          <Fila que="✓" dice="La escritura en Odoo se hizo y se verificó releyendo el registro." />
+          <Fila que="NUEVA" dice="Este registro no figuraba en la corrida anterior." />
+          <Fila que="⚠ Atención" dice="Alguien tiene que hacer algo: un alta sin Salesperson, o un registro que no se puede sincronizar." />
+          <Fila que="sin Salesperson" dice="El vendedor de DEPOFIS (0, 1, 2, 9 o 19) no tiene usuario en Odoo. El cliente se da de alta igual; el Salesperson se asigna a mano en Odoo." />
         </div>
       </Seccion>
 
@@ -114,17 +82,17 @@ export default function Ayuda() {
           <p>
             La rutina es un programa aparte (<code className="font-mono">sincronizar.py</code>),
             no un botón de esta app. Esta app es la ventana: muestra lo que la rutina publica y no
-            puede dispararla. Es deliberado — mientras el proyecto esté en evaluación, disparar la
-            sincronización tiene que ser una acción del servidor y no un click.
+            puede dispararla.
           </p>
-          <p className="font-semibold text-slate-700">Cómo se habilita la escritura</p>
+          <p className="font-semibold text-slate-700">Cómo se habilita la escritura en Odoo</p>
           <p>
             Hacen falta <strong>dos</strong> cosas, no una: el flag{' '}
             <code className="font-mono">--aplicar</code> al correr la rutina, <em>y</em> la
             variable <code className="font-mono">SINCRO_PERMITIR_APLICAR=si</code> en el{' '}
             <code className="font-mono">.env</code> del servidor. Con una sola, la corrida va en
-            simulación igual y lo avisa. Están separadas para que un flag copiado de un ejemplo, o
-            una línea de cron vieja, no puedan escribir en DEPOFIS por accidente.
+            simulación igual y lo avisa. Además, la rutina sólo puede crear contactos y productos,
+            y en los contactos existentes sólo puede escribir el Código DEPOFIS y completar datos
+            vacíos: nunca borra ni cambia nombre o CUIT.
           </p>
         </div>
       </Seccion>

@@ -3,7 +3,7 @@
  *
  * Las mismas que usan las otras apps hijas, para que sincro-odoo-depofis se vea como el
  * resto del ecosistema. Lo propio de esta app son `BadgeModo`, `BadgeAccion`,
- * `BadgeNueva` y `CodigoVendedor`, abajo de todo.
+ * `BadgeNueva` y `Salesperson`, abajo de todo.
  */
 import type { PropsWithChildren, ReactNode } from 'react';
 import type { AccionNovedad, TipoNovedad } from '../lib/types';
@@ -252,7 +252,7 @@ export function ThOrden({ children, campo, orden, dir, onOrden, align = 'left', 
  * Simulación vs aplicación.
  *
  * Es el badge más importante de la app: dice si lo que se está mirando ya se
- * escribió en DEPOFIS o si es una previsualización. Por eso simulación va en
+ * escribió en Odoo o si es una previsualización. Por eso simulación va en
  * azul informativo y aplicación en el rojo de la marca — no al revés: el rojo
  * marca lo que tiene consecuencias.
  */
@@ -274,22 +274,23 @@ export function BadgeEstado({ estado }: { estado: string }) {
   return <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${estilo}`}>{texto}</span>;
 }
 
-export function BadgeAccion({ accion, tipo }: { accion: AccionNovedad; tipo?: TipoNovedad }) {
-  // `fuera_alcance` va en gris apagado y con otra etiqueta: no es una acción
-  // que la rutina tomó sobre el registro, es "esto no era asunto nuestro". La
-  // etiqueta dice POR QUÉ quedó afuera, que es distinto en cada maestro.
+export function BadgeAccion({ accion }: { accion: AccionNovedad; tipo?: TipoNovedad }) {
+  // `fuera_alcance` va en gris apagado: no es algo que la rutina haga, es una
+  // fila de Concepfc que no es un concepto (separador, "NO USAR"…).
   if (accion === 'fuera_alcance') {
     return (
       <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-50 text-slate-400 border-slate-200 whitespace-nowrap">
-        {tipo === 'concepto' ? 'SUB-CONCEPTO' : 'PROVEEDOR'}
+        NO ES CONCEPTO
       </span>
     );
   }
   const estilo = accion === 'alta'
     ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-    : accion === 'error'
-      ? 'bg-rose-100 text-rose-800 border-rose-300'
-      : 'bg-slate-100 text-slate-600 border-slate-300';
+    : accion === 'vincular'
+      ? 'bg-sky-100 text-sky-800 border-sky-200'
+      : accion === 'error'
+        ? 'bg-rose-100 text-rose-800 border-rose-300'
+        : 'bg-slate-100 text-slate-600 border-slate-300';
   return <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${estilo}`}>{accion.toUpperCase()}</span>;
 }
 
@@ -305,25 +306,19 @@ export function BadgeDassa({ es }: { es: boolean | null }) {
 }
 
 /**
- * El código que va a DASSA.Clientes.vendedor.
+ * El Salesperson con el que el cliente queda (o quedaría) en Odoo.
  *
- * Cuando no se pudo resolver muestra un guión en ámbar y NO un 0: el 0 de
- * DEPOFIS es un código real con 523 clientes asignados, así que un cero acá se
- * leería como un dato bueno.
+ * Sin Salesperson va en ámbar: el vendedor de DEPOFIS (0, 1, 2, 9, 19) no tiene
+ * usuario en Odoo, y el cliente entra igual pero alguien tiene que asignarlo.
  */
-export function CodigoVendedor({ codigo, cual }: { codigo: number | null; cual?: string }) {
-  if (codigo == null) {
+export function Salesperson({ nombre }: { nombre: string | null }) {
+  if (!nombre) {
     return (
       <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border bg-amber-100 text-amber-900 border-amber-300 whitespace-nowrap"
-            title="No se pudo resolver: el cliente se daría de alta sin vendedor">
-        sin resolver
+            title="El vendedor de DEPOFIS no tiene usuario en Odoo">
+        sin Salesperson
       </span>
     );
   }
-  return (
-    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
-      <span className="font-mono font-bold text-slate-900 tabular-nums">{codigo}</span>
-      {cual && <span className="text-[10px] text-slate-400">{cual}</span>}
-    </span>
-  );
+  return <span className="whitespace-nowrap">{nombre}</span>;
 }

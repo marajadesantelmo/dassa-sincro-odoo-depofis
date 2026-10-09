@@ -120,7 +120,7 @@ test('la ruta /api/servicio se monta ANTES del requireSession global', () => {
 
 test('el freno de la escritura sigue siendo de dos llaves', () => {
   // El requisito del proyecto: mientras esté en evaluación, no se escribe nada
-  // en DEPOFIS por accidente. Si alguien saca una de las dos condiciones, este
+  // en Odoo por accidente. Si alguien saca una de las dos condiciones, este
   // test se cae.
   const config = leer('sincro/config.py');
   assert.match(config, /SINCRO_PERMITIR_APLICAR/);
@@ -137,11 +137,34 @@ test('el .env.example deja la escritura deshabilitada', () => {
   assert.match(leer('.env.example'), /SINCRO_PERMITIR_APLICAR=no/);
 });
 
-test('una corrida de aplicación no puede leer del espejo', () => {
-  // Decidir un alta contra la copia de ayer es como se duplica un cliente.
-  // Lo chequean los dos lados, y los dos tienen que seguir chequeándolo.
-  assert.match(leer('sincro/config.py'), /if modo == 'aplicacion':/);
-  assert.match(leer('server/lib/corridas.js'), /aplicacion_sin_origen/);
+test('no hay código que pueda escribir en DEPOFIS', () => {
+  // DEPOFIS es sólo lectura (decisión de Facu, 2026-10-09). La garantía es que
+  // no exista con qué: ni el driver del SQL Server, ni el módulo de escritura.
+  for (const f of ['sincro/depofis.py', 'sincro/vfp.py', 'scripts/probar_escritura.py']) {
+    assert.throws(() => leer(f), `${f} no tiene que existir`);
+  }
+  for (const f of ['sincronizar.py', 'sincro/espejo.py', 'sincro/config.py', 'sincro/odoo_client.py']) {
+    assert.doesNotMatch(leer(f), /import pyodbc|from \.depofis|import depofis/, f);
+  }
+  // El espejo se abre en sesión de sólo lectura.
+  assert.match(leer('sincro/espejo.py'), /set_session\(readonly=True\)/);
+});
+
+test('la escritura en Odoo está cerrada y apagada por default', () => {
+  const cliente = leer('sincro/odoo_client.py');
+  assert.match(cliente, /^_escritura_habilitada = False$/m);
+  // Sólo sincronizar.py la habilita, y sólo en modo aplicación.
+  const rutina = leer('sincronizar.py');
+  assert.match(rutina, /if modo == 'aplicacion':\s*\n\s*odoo\.habilitar_escritura\(\)/);
+  assert.equal((rutina.match(/habilitar_escritura\(\)/g) || []).length, 1);
+  // Las únicas llamadas de escritura a Odoo son 'create' y 'write', y nunca unlink.
+  const metodos = [...cliente.matchAll(/model, '(\w+)', \[/g)].map((m) => m[1]).sort();
+  assert.deepEqual(metodos, ['create', 'write']);
+  assert.doesNotMatch(cliente, /unlink'\s*,\s*\[/);
+  // A un contacto existente no se le cambia la identidad: ni name ni vat en el write.
+  const write = /_WRITE_PERMITIDO = \{([\s\S]*?)\n\}/.exec(cliente);
+  assert.ok(write, 'no se encontró _WRITE_PERMITIDO');
+  assert.doesNotMatch(write[1], /'(name|vat|active)'/);
 });
 
 test('el espejo lee de depofis_mirror y no del schema congelado', () => {
@@ -157,8 +180,19 @@ test('el espejo lee de depofis_mirror y no del schema congelado', () => {
 test('las migraciones SQL están completas y numeradas en orden', () => {
   const readme = leer('sql/README.md');
   for (const f of ['001_schema.sql', '002_roles.sql', '010_corridas.sql',
-    '020_novedades.sql', '030_vistas.sql']) {
+    '020_novedades.sql', '021_fuera_alcance.sql', '022_depofis_a_odoo.sql', '030_vistas.sql']) {
     assert.doesNotThrow(() => leer(`sql/${f}`), `falta sql/${f}`);
     assert.ok(readme.includes(f), `sql/README.md no documenta ${f}`);
   }
+});
+
+test('las acciones coinciden en el CHECK, el server y los tipos', () => {
+  // Cuando se sumó `fuera_alcance` faltó en el server y una corrida quedó
+  // `en_curso` para siempre. Los cuatro lugares tienen que decir lo mismo.
+  const acciones = ['alta', 'vincular', 'omitido', 'error', 'fuera_alcance'];
+  const lista = acciones.map((a) => `'${a}'`).join(', ');
+  assert.ok(leer('sql/022_depofis_a_odoo.sql').includes(`accion IN (${lista})`), 'CHECK de 022');
+  assert.ok(leer('server/lib/corridas.js').includes(`ACCIONES = [${lista}]`), 'ACCIONES del server');
+  assert.ok(leer('server/routes/corridas.js').includes(`[${lista}].includes(req.query.accion)`), 'filtro del router');
+  assert.ok(leer('src/lib/types.ts').includes(acciones.map((a) => `'${a}'`).join(' | ')), 'AccionNovedad');
 });

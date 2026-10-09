@@ -48,11 +48,11 @@ export default function Corridas() {
                 <Th>Modo</Th>
                 <Th>Estado</Th>
                 <Th>Origen</Th>
-                <Th align="right">Analizados</Th>
                 <Th align="right">Altas</Th>
-                <Th align="right">Omitidos</Th>
-                <Th align="right">Atención</Th>
-                <Th align="right">Sin vendedor</Th>
+                <Th align="right">Vincular</Th>
+                <Th align="right">Ejecutadas</Th>
+                <Th align="right">No se pueden</Th>
+                <Th align="right">Sin Salesperson</Th>
                 <Th align="right">Errores</Th>
                 <Th align="right">Duración</Th>
               </tr>
@@ -71,18 +71,11 @@ export default function Corridas() {
                   <Td className="text-slate-500 text-[11px]">
                     {c.origen === 'cron' ? 'automática' : (c.disparada_por || c.origen)}
                   </Td>
-                  {/* `en_alcance`, no `evaluados`: lo descartado por el filtro de
-                      alcance no es parte de lo que la corrida analizo. */}
-                  <Td align="right" className="tabular-nums" title={c.fuera_alcance ? `${c.fuera_alcance} fuera de alcance: ${c.fuera_alcance_clientes} proveedores, ${c.fuera_alcance_conceptos} sub-conceptos` : undefined}>
-                    {c.en_alcance}
-                    {c.fuera_alcance > 0 && (
-                      <span className="text-slate-400 font-normal"> +{c.fuera_alcance}</span>
-                    )}
-                  </Td>
                   <Td align="right" className="tabular-nums font-semibold text-emerald-700">{c.altas}</Td>
-                  <Td align="right" className="tabular-nums text-slate-500">{c.omitidos}</Td>
-                  <Td align="right" className={`tabular-nums ${c.requieren_atencion ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
-                    {c.requieren_atencion}
+                  <Td align="right" className="tabular-nums text-sky-700">{c.vinculaciones}</Td>
+                  <Td align="right" className="tabular-nums text-slate-500">{c.modo === 'aplicacion' ? c.ejecutadas : '—'}</Td>
+                  <Td align="right" className={`tabular-nums ${c.omitidos ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
+                    {c.omitidos}
                   </Td>
                   <Td align="right" className={`tabular-nums ${c.altas_sin_vendedor ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
                     {c.altas_sin_vendedor}

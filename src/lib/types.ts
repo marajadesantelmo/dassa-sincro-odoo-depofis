@@ -16,11 +16,15 @@ export interface Me {
 export type Modo = 'simulacion' | 'aplicacion';
 export type EstadoCorrida = 'en_curso' | 'ok' | 'con_errores' | 'fallida';
 export type TipoNovedad = 'cliente' | 'concepto';
-/** `fuera_alcance` = no es asunto de esta rutina. Del lado de clientes, un
- *  proveedor; del lado de conceptos, un sub-concepto (`30055-30`, el tramo de
- *  días del concepto 30055). No es una omisión ni trabajo pendiente. Se guarda
- *  para poder auditar el filtro, y la pantalla lo deja fuera por default. */
-export type AccionNovedad = 'alta' | 'omitido' | 'error' | 'fuera_alcance';
+/** Lo que la rutina hace (o haría) en ODOO con un registro de DEPOFIS:
+ *  - `alta`: no existe en Odoo, se crea.
+ *  - `vincular`: el cliente existe en Odoo con el mismo CUIT y le falta el
+ *    Código DEPOFIS; se le carga y se completan los datos vacíos.
+ *  - `omitido`: no se puede (CUIT inválido, duplicado…); el motivo dice por qué.
+ *  - `error`: se intentó y Odoo lo rechazó.
+ *  - `fuera_alcance`: una fila de Concepfc que no es un concepto (separador,
+ *    "NO USAR", la fila de prueba). No es trabajo pendiente. */
+export type AccionNovedad = 'alta' | 'vincular' | 'omitido' | 'error' | 'fuera_alcance';
 
 /** Una entrada del VENDEDOR_MAP tal como la guardó la corrida. */
 export interface MapeoVendedor {
@@ -40,14 +44,15 @@ export interface Corrida {
   duracion_ms: number | null;
   odoo_db: string | null;
   depofis_server: string | null;
-  /** De dónde se LEYÓ DEPOFIS. `espejo` es una copia diaria: por eso viene con
-   *  su frescura y la pantalla la muestra. Una corrida de aplicación siempre
-   *  es `origen`. */
+  /** De dónde se LEYÓ DEPOFIS. Desde la 0.2 siempre `espejo` (depofis_mirror,
+   *  sólo lectura); viene con su frescura y la pantalla la muestra. */
   fuente: 'espejo' | 'origen';
   fuente_sincronizada_en: string | null;
   vendedor_map: Record<string, MapeoVendedor>;
   error: string | null;
   version_rutina: string | null;
+  /** Lo que la rutina contó y no publicó fila por fila: lo que NO cambia. */
+  totales: Totales;
   /** id de la corrida completada anterior. NULL = ésta es la primera, y por eso
    *  no hay nada marcado como nuevo. */
   anterior_id: number | null;
@@ -58,56 +63,63 @@ export interface Corrida {
   altas: number;
   altas_clientes: number;
   altas_conceptos: number;
+  /** Clientes que existen en Odoo por CUIT y se vinculan. */
+  vinculaciones: number;
+  /** altas + vinculaciones: lo que se sube o modifica en Odoo. */
+  a_sincronizar: number;
+  /** Escrituras en Odoo hechas y verificadas. */
+  ejecutadas: number;
   omitidos: number;
   errores: number;
   /** Registros descartados por no ser asunto de la rutina. Se cuenta aparte de
    *  `omitidos` a propósito: nada de esto es algo pendiente de resolver. */
   fuera_alcance: number;
-  /** De `fuera_alcance`, los que son proveedores (tipo cliente). */
+  /** En corridas 0.1, los proveedores. Desde la 0.2 siempre 0. */
   fuera_alcance_clientes: number;
-  /** De `fuera_alcance`, los sub-conceptos (tipo concepto). */
+  /** Filas de Concepfc que no son conceptos (en corridas 0.1, los sub-conceptos). */
   fuera_alcance_conceptos: number;
   /** `evaluados` menos los `fuera_alcance`. Es el denominador honesto: lo que
    *  la rutina realmente analizó como cliente o concepto. */
   en_alcance: number;
   requieren_atencion: number;
-  /** Altas de cliente que quedarían con `vendedor` NULL en DEPOFIS. Es el
-   *  número que mide el trabajo pendiente en Odoo. */
+  /** Altas de cliente que entran a Odoo sin Salesperson: su vendedor de
+   *  DEPOFIS no tiene usuario en Odoo. */
   altas_sin_vendedor: number;
 }
 
-/** Lo que se escribiría (o escribió) en DEPOFIS. Las claves son las columnas
- *  reales de DASSA.Clientes / DASSA.Concepfc, así que van sin traducir. */
-export interface PayloadCliente {
-  clie_nro?: number;
-  apellido?: string;
-  direccion?: string;
-  localidad?: string;
-  provincia?: string;
-  cpostal?: string;
-  telefono?: string;
-  tipo_cl?: string;
-  tipo_doc?: string;
-  documento?: string;
-  iva?: number;
-  vendedor?: number | null;
-  consolida?: number;
-  email?: string;
-  estado?: number;
+export interface TotalesTipo {
+  sin_cambios?: number;
+  inactivos?: number;
 }
 
-export interface PayloadConcepto {
-  codigo?: number;
-  detalle?: string;
-  calcula?: string;
-  grupo?: string;
+export interface Totales {
+  clientes?: TotalesTipo;
+  conceptos?: TotalesTipo;
+}
+
+/** Lo que se escribe (o escribiría) en Odoo y lo que se leyó de DEPOFIS. */
+export interface PayloadNovedad {
+  /** Los valores tal como van al create/write de Odoo. */
+  odoo?: Record<string, unknown>;
+  depofis?: {
+    tipo_cl?: string;
+    etiqueta?: string | null;
+    iva_depofis?: number | null;
+    fecha_alta?: string | null;
+    grupo?: string;
+    gravado?: string;
+    importe?: number;
+    calcula?: string;
+  };
 }
 
 export interface Novedad {
   id: number;
   corrida_id: number;
   tipo: TipoNovedad;
-  odoo_id: number;
+  /** Contacto/producto de Odoo: el que se vincula, o el creado. NULL en un alta no ejecutada. */
+  odoo_id: number | null;
+  /** El nombre que trae DEPOFIS (la columna conserva su nombre histórico). */
   odoo_nombre: string;
   clave: string | null;
   accion: AccionNovedad;
@@ -119,8 +131,10 @@ export interface Novedad {
   es_dassa: boolean | null;
   vendedor_depofis: number | null;
 
-  payload: PayloadCliente & PayloadConcepto;
+  payload: PayloadNovedad;
+  /** clie_nro o código de concepto: la clave de la fila. */
   depofis_id: string | null;
+  ejecutada: boolean;
   es_nueva: boolean;
   anterior_id: number | null;
   creado_en: string;

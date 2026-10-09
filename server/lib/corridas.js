@@ -5,7 +5,7 @@
  * acá. Los routers no escriben SQL.
  *
  * La app es, deliberadamente, un LECTOR: no dispara la sincronización ni toca
- * Odoo ni DEPOFIS. Lo único que escribe son las corridas que le publica
+ * Odoo ni DEPOFIS (la que escribe en Odoo es la rutina, nunca la app). Lo único que escribe son las corridas que le publica
  * `sincronizar.py` por /api/servicio/*. Ver CLAUDE.md § Decisiones #1.
  */
 import { query, enTransaccion } from './db.js';
@@ -13,15 +13,15 @@ import { ErrorDeNegocio } from './errores.js';
 
 export { ErrorDeNegocio };
 
-// Tope de filas por página. Una corrida completa hoy son ~460 novedades
-// (117 clientes + ~340 conceptos), así que con este tope entra entera en una
-// sola respuesta y la tabla ordena y filtra en el navegador.
+// Tope de filas por página. Una corrida publica sólo lo que cambia o no se
+// pudo (~110 filas el 2026-10-09: lo ya sincronizado se cuenta, no se lista),
+// así que con este tope entra entera en una sola respuesta.
 const LIMITE_MAX = 1000;
 
 const CAMPOS_NOVEDAD = `
   id, corrida_id, tipo, odoo_id, odoo_nombre, clave, accion, motivo,
   requiere_atencion, vendedor_uid, vendedor_nombre, es_dassa, vendedor_depofis,
-  payload, depofis_id, es_nueva, anterior_id, creado_en
+  payload, depofis_id, ejecutada, es_nueva, anterior_id, creado_en
 `;
 
 // ─── Lectura ───────────────────────────────────────────────────────────────
@@ -98,11 +98,10 @@ const MODOS = ['simulacion', 'aplicacion'];
 const ORIGENES = ['cron', 'cli', 'manual'];
 const FUENTES = ['espejo', 'origen'];
 const ESTADOS_FINALES = ['ok', 'con_errores', 'fallida'];
-// `fuera_alcance` es una acción como cualquier otra para el server: la fila se
-// guarda igual y la pantalla decide si la muestra. Faltaba acá cuando se sumó el
-// filtro de proveedores, y el sintoma fue una corrida que quedaba `en_curso`
-// para siempre porque el lote entero rebotaba con 400.
-const ACCIONES = ['alta', 'omitido', 'error', 'fuera_alcance'];
+// Tiene que coincidir con el CHECK de la tabla (sql/022_depofis_a_odoo.sql).
+// Cuando se sumó `fuera_alcance` faltó acá, y el síntoma fue una corrida que
+// quedaba `en_curso` para siempre porque el lote entero rebotaba con 400.
+const ACCIONES = ['alta', 'vincular', 'omitido', 'error', 'fuera_alcance'];
 const TIPOS = ['cliente', 'concepto'];
 
 export async function abrirCorrida(datos) {
@@ -122,18 +121,6 @@ export async function abrirCorrida(datos) {
   if (!FUENTES.includes(fuente)) {
     throw new ErrorDeNegocio('fuente_invalida', `fuente debe ser una de: ${FUENTES.join(', ')}`);
   }
-  // Una corrida de aplicación leída del espejo sería una decisión de alta
-  // tomada contra una copia de ayer. La rutina ya lo impide en
-  // `config.resolver_fuente()`; el server lo vuelve a chequear porque es la
-  // clase de error que no se puede descubrir después.
-  if (modo === 'aplicacion' && fuente !== 'origen') {
-    throw new ErrorDeNegocio(
-      'aplicacion_sin_origen',
-      'Una corrida de aplicación tiene que leer del origen, no del espejo.',
-      422,
-    );
-  }
-
   const r = await query(
     `INSERT INTO sincro_odoo_depofis.corrida
        (modo, origen, disparada_por, odoo_db, odoo_uid, depofis_server,
@@ -183,7 +170,9 @@ export async function publicarNovedades(corridaId, novedades) {
   for (const n of novedades) {
     if (!TIPOS.includes(n?.tipo)) throw new ErrorDeNegocio('tipo_invalido', `tipo debe ser: ${TIPOS.join(' | ')}`);
     if (!ACCIONES.includes(n?.accion)) throw new ErrorDeNegocio('accion_invalida', `accion debe ser: ${ACCIONES.join(' | ')}`);
-    if (!Number.isInteger(n?.odoo_id)) throw new ErrorDeNegocio('odoo_id_invalido', 'odoo_id debe ser entero.');
+    // Un alta todavía no tiene id en Odoo; la clave de la fila es el registro de DEPOFIS.
+    if (n?.odoo_id != null && !Number.isInteger(n.odoo_id)) throw new ErrorDeNegocio('odoo_id_invalido', 'odoo_id debe ser entero o null.');
+    if (n?.depofis_id == null || n.depofis_id === '') throw new ErrorDeNegocio('depofis_id_invalido', 'depofis_id es obligatorio.');
   }
 
   return enTransaccion(async (c) => {
@@ -191,10 +180,11 @@ export async function publicarNovedades(corridaId, novedades) {
       await c.query(
         `INSERT INTO sincro_odoo_depofis.novedad
            (corrida_id, tipo, odoo_id, odoo_nombre, clave, accion, motivo, requiere_atencion,
-            vendedor_uid, vendedor_nombre, es_dassa, vendedor_depofis, payload, depofis_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)`,
+            vendedor_uid, vendedor_nombre, es_dassa, vendedor_depofis, payload, depofis_id, ejecutada)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15)`,
         [
-          corridaId, n.tipo, n.odoo_id, String(n.odoo_nombre || '').slice(0, 300),
+          corridaId, n.tipo, Number.isInteger(n.odoo_id) ? n.odoo_id : null,
+          String(n.odoo_nombre || '').slice(0, 300),
           n.clave != null ? String(n.clave).slice(0, 60) : null,
           n.accion, n.motivo != null ? String(n.motivo).slice(0, 500) : null,
           Boolean(n.requiere_atencion),
@@ -203,7 +193,8 @@ export async function publicarNovedades(corridaId, novedades) {
           typeof n.es_dassa === 'boolean' ? n.es_dassa : null,
           Number.isInteger(n.vendedor_depofis) ? n.vendedor_depofis : null,
           JSON.stringify(n.payload || {}),
-          n.depofis_id != null ? String(n.depofis_id).slice(0, 40) : null,
+          String(n.depofis_id).slice(0, 40),
+          n.ejecutada === true,
         ],
       );
     }
