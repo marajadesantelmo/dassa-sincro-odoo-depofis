@@ -1,21 +1,27 @@
 # -*- coding: utf-8 -*-
-"""Cliente de SOLO LECTURA contra la API estándar de Odoo (XML-RPC) de DASSA.
+"""Cliente XML-RPC contra la API estándar de Odoo de DASSA.
 
 Adaptado del `conexion_odoo/odoo_client.py` de `dassa-conciliacion-comprobantes`.
 La única diferencia real es de dónde salen las credenciales: allá venían de un
 `tokens.py`, acá de `sincro/config.py` (env → .env → tokens.py).
 
-Garantía de solo lectura: no existe ningún passthrough genérico tipo
-`execute_kw(model, method, *args)`. Toda llamada pasa por `_execute_kw()`, que
-valida `method` contra un allowlist fijo (`_READ_ONLY_METHODS`) y levanta
-PermissionError —antes de tocar la red— si se pide un método de escritura
-(write/create/unlink/…). Ésa es la garantía real; cualquier instrucción en un
-prompt o en un comentario es secundaria.
+Dos vías, y la diferencia importa:
 
-Consecuencia de fondo para este proyecto: la rutina NO puede escribir
-`depofis_code` en Odoo después de dar de alta un cliente. La idempotencia se
-consigue por otro lado — matcheando por CUIT contra DASSA.Clientes.documento
-antes de cada alta. Ver `sincro/depofis.py`.
+  · LECTURA — todo pasa por `_execute_kw()`, que valida `method` contra un
+    allowlist fijo (`_READ_ONLY_METHODS`) y levanta PermissionError —antes de
+    tocar la red— si se pide cualquier otra cosa. No hay passthrough genérico.
+
+  · ESCRITURA — sólo `crear()` y `escribir()`, y sólo sobre lo que esta rutina
+    tiene que escribir: `create` de `res.partner` / `product.template` y
+    `write` de `res.partner`, cada uno con su lista cerrada de CAMPOS. Nada de
+    `unlink`, nada de otro modelo, nada de un campo que no esté en la lista.
+    Además está APAGADA hasta que `sincronizar.py` llama a
+    `habilitar_escritura()`, cosa que sólo hace en modo aplicación (las dos
+    llaves de `config.resolver_modo`). En simulación la escritura no es que
+    no se use: levanta PermissionError.
+
+La garantía es el código, no un comentario: si mañana alguien quiere escribir
+otro campo, tiene que agregarlo acá, a la vista de un review.
 """
 
 import json
@@ -166,6 +172,71 @@ def read_group(model, domain, fields, groupby, offset=0, limit=None, orderby=Non
     if orderby is not None:
         kwargs['orderby'] = orderby
     return _execute_kw(model, 'read_group', domain, fields, groupby, **kwargs)
+
+
+# ─── Escritura ─────────────────────────────────────────────────────────────
+
+# Lo único que esta rutina puede escribir en Odoo. Modelo → campos permitidos.
+_CREATE_PERMITIDO = {
+    'res.partner': frozenset({
+        'name', 'vat', 'is_company', 'depofis_code', 'user_id', 'is_dassa',
+        'l10n_latam_identification_type_id', 'l10n_ar_afip_responsibility_type_id',
+        'street', 'city', 'zip', 'phone', 'email', 'country_id', 'category_id', 'lang',
+    }),
+    'product.template': frozenset({
+        'name', 'default_code', 'type', 'sale_ok', 'purchase_ok', 'taxes_id',
+        'categ_id', 'list_price', 'invoice_policy',
+    }),
+}
+
+# `write` sólo sobre contactos, y sólo para VINCULAR: el código más los datos
+# que estén vacíos (ver reglas.completar_vacios). Ni `name` ni `vat` están: a
+# un contacto existente no se le cambia la identidad.
+_WRITE_PERMITIDO = {
+    'res.partner': frozenset({
+        'depofis_code', 'user_id', 'is_dassa',
+        'l10n_latam_identification_type_id', 'l10n_ar_afip_responsibility_type_id',
+        'street', 'city', 'zip', 'phone', 'email', 'country_id', 'category_id',
+    }),
+}
+
+_escritura_habilitada = False
+
+
+def habilitar_escritura():
+    """Sólo lo llama `sincronizar.py`, y sólo en modo aplicación."""
+    global _escritura_habilitada
+    _escritura_habilitada = True
+
+
+def _validar_escritura(permitido, model, vals, operacion):
+    if not _escritura_habilitada:
+        raise PermissionError(
+            "Escritura en Odoo deshabilitada ({} {}): la corrida no está en modo aplicación."
+            .format(operacion, model))
+    campos = permitido.get(model)
+    if campos is None:
+        raise PermissionError("{} sobre '{}' no está permitido.".format(operacion, model))
+    fuera = sorted(set(vals) - campos)
+    if fuera:
+        raise PermissionError(
+            "{} de '{}' con campos no permitidos: {}".format(operacion, model, fuera))
+
+
+def crear(model, vals):
+    """`create` de un registro. Devuelve el id nuevo."""
+    _validar_escritura(_CREATE_PERMITIDO, model, vals, 'create')
+    _ensure_connected()
+    nuevo = _object_proxy.execute_kw(_db, _uid, config.odoo_key(), model, 'create', [vals], {})
+    # Odoo 17+ acepta una lista y puede devolver una lista de ids.
+    return nuevo[0] if isinstance(nuevo, list) else nuevo
+
+
+def escribir(model, ids, vals):
+    """`write` sobre registros existentes."""
+    _validar_escritura(_WRITE_PERMITIDO, model, vals, 'write')
+    _ensure_connected()
+    return _object_proxy.execute_kw(_db, _uid, config.odoo_key(), model, 'write', [list(ids), vals], {})
 
 
 def info_conexion():

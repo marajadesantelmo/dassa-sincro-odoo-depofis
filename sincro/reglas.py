@@ -1,175 +1,56 @@
 # -*- coding: utf-8 -*-
-"""Las reglas de negocio de la sincronización Odoo → DEPOFIS.
+"""Las reglas de negocio de la sincronización DEPOFIS → Odoo.
 
-Módulo puro: no lee archivos, no toca la red, no conoce ni Odoo ni pyodbc.
+Módulo puro: no lee archivos, no toca la red, no conoce ni Odoo ni Postgres.
 Es lo que permite testearlo entero sin credenciales (`python -m unittest
 sincro.test_reglas`) y lo que hace que un cambio de regla sea revisable en un
 solo lugar.
+
+LA DIRECCIÓN
+────────────
+DEPOFIS es el maestro: un cliente o un concepto que existe en DEPOFIS tiene que
+existir también en Odoo. La rutina LEE DEPOFIS (el espejo `depofis_mirror`) y
+ESCRIBE en Odoo. A DEPOFIS no se le escribe nunca (decisión de Facu,
+2026-10-09) — en este repo no hay código que pueda hacerlo.
 """
 
 from collections import namedtuple
 import re
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  ALCANCE — esta rutina sincroniza CLIENTES. Los proveedores no.
+#  VENDEDOR — código DEPOFIS → Salesperson de Odoo
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# En Odoo clientes y proveedores conviven en `res.partner`. En DEPOFIS no: son
-# dos tablas distintas, `DASSA.Clientes` (1369 filas) y `DASSA.Proveed` (1609).
-# Esta rutina escribe únicamente en Clientes, y la decisión de negocio es que
-# **DEPOFIS no necesita estar actualizado en proveedores**: ese maestro se
-# administra en Odoo y ahí se queda.
+# En Odoo el vendedor de un cliente es el campo estándar `res.partner.user_id`
+# ("Salesperson"). La pestaña DEPOFIS tiene además `is_dassa` ("Cliente
+# DASSA"), que distingue al cliente institucional del cliente propio del
+# comercial. En DEPOFIS cada comercial tiene DOS códigos en Clientes.vendedor:
 #
-# Sin este filtro la rutina evaluaba 118 contactos, de los cuales 61 eran
-# proveedores puros — EDESUR, Banco Santander, Claro, Telecentro, Starlink,
-# Exolgan, la Cámara de Depósitos Fiscales. Ninguno se daba de alta (les falta
-# la categoría comercial), pero todos aparecían en la pantalla como "omitido ·
-# requiere atención", o sea como trabajo pendiente que nadie iba a hacer nunca.
-# Un informe donde el 51 % de las filas es ruido entrena a no leerlo.
+#     código propio         →  Salesperson = el comercial, is_dassa = False
+#     código institucional  →  Salesperson = el comercial, is_dassa = True
 #
-# LAS SEÑALES SON FACTURAS, NO `customer_rank` / `supplier_rank`
-# ──────────────────────────────────────────────────────────────
-# Los rank de Odoo son la respuesta obvia y son la equivocada, por los dos
-# lados:
+# VERIFICADO CONTRA DATOS REALES (2026-09-07, y de nuevo en el sentido inverso
+# el 2026-10-09): cruzando los ~1950 clientes que ya tienen `depofis_code` en
+# Odoo contra DEPOFIS, el mapa reproduce el 99,6 % de los casos. Las
+# diferencias son carteras reasignadas en Odoo que DEPOFIS todavía no refleja.
 #
-#   · En POSITIVO no sirven: de los 2187 contactos ya vinculados a DEPOFIS
-#     —clientes reales y confirmados— el 85 % tiene customer_rank = 0. El rank
-#     se incrementa al facturar EN ODOO, y DASSA factura por DEPOFIS.
-#
-#   · En NEGATIVO tampoco: `customer_rank > 0` no significa que se le haya
-#     vendido algo. Medido sobre los 118 candidatos, 16 tienen customer_rank > 0
-#     y CERO facturas de venta — entre ellos EL VISOR SRL (rank 2, 0 ventas,
-#     5 compras) y NUEVO ESTIBAJE (rank 2, 0 ventas, 9 compras). Ese rank
-#     fantasma les alcanzaba para "rescatarse" del filtro y volver a la
-#     pantalla como omisiones pendientes. Era el agujero de la primera versión.
-#
-# Lo que sí es verdad verificable son los comprobantes: `account.move` por
-# partner, `out_invoice`+`out_refund` contra `in_invoice`+`in_refund`. Medido
-# sobre los mismos 118: los rank nunca se quedan cortos (0 casos con facturas
-# de venta y customer_rank = 0), sólo sobran. O sea que las facturas son el
-# subconjunto verdadero y el rank es ese subconjunto más ruido.
-#
-#   es_proveedor        tiene facturas de COMPRA y ninguna de venta
-#                       ó el CUIT está en DASSA.Proveed y no en DASSA.Clientes
-#
-#   evidencia_cliente   el CUIT ya está en DASSA.Clientes  ·  tiene facturas de
-#                       VENTA  ·  tiene Salesperson  ·  is_dassa  ·  tiene una
-#                       etiqueta que es categoría comercial DEPOFIS
-#
-# Se excluye sólo cuando hay evidencia de proveedor Y ninguna de cliente. La
-# asimetría es a propósito: dejar entrar un proveedor cuesta una fila de ruido,
-# dejar afuera un cliente cuesta un alta que nunca se hace.
-#
-# VERIFICADO (2026-09-08): aplicada a los 2187 contactos ya vinculados a
-# DEPOFIS, la regla **no excluye ninguno** (0 falsos negativos). Sobre los 118
-# candidatos excluye 61 y rescata 6 que un filtro crudo por proveedor habría
-# perdido — Claro, Telecentro, Depósitos Moreiro, GCR, Maqueleva y Traforlog,
-# los seis ya presentes en DASSA.Clientes. De los 56 candidatos que están en
-# DASSA.Proveed, ninguno tiene una sola factura de venta: las dos señales de
-# proveedor coinciden en todos los casos en que ambas se pronuncian.
-
-ResultadoAlcance = namedtuple('ResultadoAlcance', ['en_alcance', 'motivo', 'senales'])
-
-
-def clasificar_alcance(cuit_digitos, facturas_venta, facturas_compra,
-                       tiene_salesperson, es_dassa, tiene_categoria_depofis,
-                       cuits_proveedores, cuits_clientes):
-    """¿Este contacto de Odoo es un cliente de DASSA, o un proveedor?
-
-    `facturas_venta` / `facturas_compra` son la CANTIDAD de comprobantes de
-    cada lado en Odoo (ver `sincronizar.py:contar_facturas`), no los rank.
-
-    Devuelve un ResultadoAlcance. `en_alcance=False` significa "es un proveedor
-    y no hay ni un indicio de que además sea cliente": la rutina lo registra
-    como `fuera_alcance` y no lo cuenta como pendiente.
-
-    `senales` lista los indicios encontrados, para que la pantalla pueda
-    explicar la exclusión en vez de hacerla desaparecer sin más.
-    """
-    ventas = int(facturas_venta or 0)
-    compras = int(facturas_compra or 0)
-    cuit = cuit_digitos or ''
-
-    proveedor = []
-    if compras > 0 and ventas == 0:
-        proveedor.append('en Odoo tiene {} factura(s) de compra y ninguna de venta'
-                         .format(compras))
-    if cuit and cuit in cuits_proveedores and cuit not in cuits_clientes:
-        proveedor.append('el CUIT está en DASSA.Proveed y no en DASSA.Clientes')
-
-    cliente = []
-    # La evidencia más fuerte, y la que le gana a todo: ya está en el maestro de
-    # clientes de DEPOFIS. Un contacto así no puede quedar fuera de alcance
-    # aunque Odoo lo trate como proveedor — lo que corresponde para él es la
-    # omisión "ya existe, falta vincular el depofis_code", que sí es trabajo
-    # pendiente y real.
-    if cuit and cuit in cuits_clientes:
-        cliente.append('el CUIT ya está en DASSA.Clientes')
-    if ventas > 0:
-        cliente.append('tiene {} factura(s) de venta en Odoo'.format(ventas))
-    if tiene_salesperson:
-        cliente.append('tiene Salesperson asignado')
-    if es_dassa:
-        cliente.append('está marcado como Cliente DASSA')
-    if tiene_categoria_depofis:
-        cliente.append('tiene una categoría comercial de DEPOFIS')
-
-    if proveedor and not cliente:
-        return ResultadoAlcance(
-            False,
-            'Proveedor, no cliente: {}. Los proveedores viven en DASSA.Proveed y se '
-            'administran en Odoo — quedan fuera del alcance de esta sincronización.'
-            .format(' y '.join(proveedor)),
-            proveedor)
-
-    if proveedor:
-        # Comprado y vendido a la vez: un transportista al que además se le
-        # factura depósito. Entra, pero la señal queda registrada.
-        return ResultadoAlcance(
-            True,
-            'Es también proveedor ({}), pero hay evidencia de cliente: {}.'
-            .format(proveedor[0], ' · '.join(cliente)),
-            proveedor + cliente)
-
-    return ResultadoAlcance(True, None, cliente)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  VENDEDOR — el mapeo pedido
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# En Odoo el vendedor de un cliente NO está en la pestaña DEPOFIS: es el campo
-# estándar `res.partner.user_id` ("Salesperson", many2one a res.users). Lo que
-# sí está en esa pestaña es `is_dassa` ("Cliente DASSA"), que distingue al
-# cliente institucional de la empresa del cliente propio del comercial.
-#
-# Cada comercial tiene DOS códigos en DASSA.Clientes.vendedor, y cuál va se
-# decide con is_dassa:
-#
-#     is_dassa = False  →  código propio          (Enzo Nieto  → 5)
-#     is_dassa = True   →  código institucional   (Enzo Nieto  → 15)
-#
-# VERIFICADO CONTRA DATOS REALES (2026-09-07). No es un criterio inferido: se
-# cruzaron los 1951 clientes que ya tienen `depofis_code` en Odoo contra
-# `DASSA.Clientes.vendedor`, y el mapa reproduce el 99,6 % de los casos. Las ~8
-# discrepancias son carteras reasignadas en Odoo que DEPOFIS todavía no refleja
-# (p. ej. 4 clientes que hoy son de Francisco siguen con el 3, de Manuel), no
-# errores del mapa.
-#
-#     uid  Salesperson                 propio  institucional   verificados
-#      6   Manuel de la Arena             3         13            76
-#      7   Santiago Aguirre Oliva         4         14           137
-#      8   Francisco Urtubey              6         16            71
-#     11   Guillermo Jorge                7         17           502
-#     12   Alexis Dalpra                  8         18           177
-#     13   Enzo Nieto                     5         15           406
+#     uid  Salesperson                 propio  institucional
+#      6   Manuel de la Arena             3         13
+#      7   Santiago Aguirre Oliva         4         14
+#      8   Francisco Urtubey              6         16
+#     11   Guillermo Jorge                7         17
+#     12   Alexis Dalpra                  8         18
+#     13   Enzo Nieto                     5         15
 #
 # La regla observada es institucional = propio + 10, pero el mapa se escribe
 # entero igual: si mañana entra un comercial con un par que no siga esa suma,
 # una fórmula lo asignaría mal en silencio y una tabla no.
 #
-# Los códigos 0, 1, 2, 9 y 19 existen en DEPOFIS y NO tienen usuario en Odoo
-# (0 = sin vendedor, 523 clientes). No se mapean: ver `resolver_vendedor`.
+# Los códigos 0, 1, 2, 9 y 19 existen en DEPOFIS y NO tienen usuario en Odoo.
+# El 0 es lo que se carga cuando el cliente no tiene comercial (376 de los
+# vinculados están así y en Odoo no tienen Salesperson). Un cliente con
+# cualquiera de esos códigos se da de alta igual, sin Salesperson, y la fila
+# queda marcada.
 
 Vendedor = namedtuple('Vendedor', ['nombre', 'propio', 'institucional'])
 
@@ -187,8 +68,8 @@ def vendedor_map_serializable():
     """El mapa como dict JSON, para guardarlo con la corrida.
 
     Se publica junto a cada corrida a propósito: así la pantalla puede explicar
-    meses después por qué a un cliente le tocó el 15, aunque para entonces el
-    mapa haya cambiado.
+    meses después por qué a un cliente le tocó tal Salesperson, aunque para
+    entonces el mapa haya cambiado.
     """
     return {
         str(uid): {'nombre': v.nombre, 'propio': v.propio, 'institucional': v.institucional}
@@ -196,76 +77,55 @@ def vendedor_map_serializable():
     }
 
 
-ResultadoVendedor = namedtuple('ResultadoVendedor', ['codigo', 'uid', 'nombre', 'motivo'])
+ResultadoVendedor = namedtuple('ResultadoVendedor', ['uid', 'nombre', 'es_dassa', 'motivo'])
 
 
-def resolver_vendedor(user_id, is_dassa):
-    """`user_id`: la tupla (id, nombre) que devuelve Odoo para un many2one, o False.
+def vendedor_desde_depofis(codigo):
+    """Código de `Clientes.vendedor` → Salesperson e `is_dassa` de Odoo.
 
-    Devuelve un ResultadoVendedor. `codigo` es None cuando no se puede resolver,
-    y entonces `motivo` explica por qué.
-
-    Nunca se cae a un valor por defecto. El 0 de DEPOFIS no es "sin vendedor":
-    es un código real con 523 clientes asignados, así que ponerlo cuando no
-    sabemos sería inventar una cartera. Un NULL se ve, un 0 se confunde con un
-    dato bueno.
+    Devuelve un ResultadoVendedor. `uid` es None cuando el código no tiene
+    usuario en Odoo, y entonces `motivo` explica por qué. `es_dassa` es None en
+    ese caso: no se sabe, y no se inventa.
     """
-    if not user_id:
+    if codigo is None:
+        return ResultadoVendedor(None, None, None, 'El cliente no tiene vendedor en DEPOFIS')
+    codigo = int(codigo)
+    for uid, v in VENDEDOR_MAP.items():
+        if codigo == v.propio:
+            return ResultadoVendedor(uid, v.nombre, False,
+                                     f'Código {codigo} → {v.nombre} (propio)')
+        if codigo == v.institucional:
+            return ResultadoVendedor(uid, v.nombre, True,
+                                     f'Código {codigo} → {v.nombre} (institucional, Cliente DASSA)')
+    if codigo == 0:
         return ResultadoVendedor(None, None, None,
-                                 'El contacto no tiene Salesperson asignado en Odoo')
-
-    uid, nombre = user_id[0], user_id[1]
-    v = VENDEDOR_MAP.get(uid)
-    if v is None:
-        return ResultadoVendedor(
-            None, uid, nombre,
-            f'El Salesperson "{nombre}" (uid {uid}) no está en el mapeo de vendedores DEPOFIS')
-
-    codigo = v.institucional if is_dassa else v.propio
-    cual = 'institucional (Cliente DASSA)' if is_dassa else 'propio'
-    return ResultadoVendedor(codigo, uid, nombre, f'{v.nombre} → código {cual} {codigo}')
+                                 'Sin vendedor en DEPOFIS (código 0): queda sin Salesperson en Odoo')
+    return ResultadoVendedor(None, None, None,
+                             f'El vendedor {codigo} de DEPOFIS no tiene usuario en Odoo: '
+                             'queda sin Salesperson')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  CONDICIÓN DE IVA
+#  CONDICIÓN DE IVA — DASSA.Tipo_iva.codigo → l10n_ar.afip.responsibility.type
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# l10n_ar.afip.responsibility.type (id de Odoo) → DASSA.Tipo_iva.codigo.
-# Las categorías sin equivalente directo (Proveedor/Cliente del Exterior, IVA
-# Liberado, Sujeto no Categorizado) se mapean por juicio de negocio; están
-# marcadas abajo y conviene revisarlas si aparece un caso real.
+# Sólo las equivalencias directas. Medido sobre los clientes ya vinculados
+# (2026-10-09): el 90 % tiene el campo VACÍO en Odoo, así que dejarlo vacío
+# cuando no hay equivalencia es lo que ya pasa hoy, no una regresión.
 
-IVA_MAP = {
-    1: 1,    # IVA Responsable Inscripto -> RESPONSABLE INSCRIPTO
-    4: 6,    # IVA Sujeto Exento -> EXENTO
-    5: 3,    # Consumidor Final -> CONSUMIDOR FINAL
-    6: 4,    # Responsable Monotributo -> MONOTRIBUTO
-    7: 0,    # Sujeto no Categorizado -> S/D                    (aproximado)
-    8: 5,    # Proveedor del Exterior -> NO GRAVADO             (aproximado)
-    9: 5,    # Cliente del Exterior -> NO GRAVADO               (aproximado)
-    10: 6,   # IVA Liberado Ley 19.640 -> EXENTO                (aproximado)
-    13: 4,   # Monotributista Social -> MONOTRIBUTO
-    15: 5,   # IVA No Alcanzado -> NO GRAVADO
-    16: 4,   # Monotributo Trabajador Independiente Promovido -> MONOTRIBUTO
+IVA_A_ODOO = {
+    1: 1,    # RESPONSABLE INSCRIPTO → IVA Responsable Inscripto
+    3: 5,    # CONSUMIDOR FINAL      → Consumidor Final
+    4: 6,    # MONOTRIBUTO           → Responsable Monotributo
+    6: 4,    # EXENTO                → IVA Sujeto Exento
 }
 
-# Si el campo viene vacío en Odoo se asume Responsable Inscripto. Es lo que
-# pide la Descripción de Proyecto, y es el caso del 90 % de la cartera.
-IVA_DEFAULT = 1
 
-# Ids de IVA_MAP cuya equivalencia es un juicio de negocio y no un calco: si
-# aparecen, la novedad se marca para revisar en vez de darse por buena.
-IVA_APROXIMADOS = {7, 8, 9, 10}
-
-
-def resolver_iva(afip_responsibility_type_id):
-    """Devuelve (codigo, aproximado). `aproximado=True` marca la fila para revisar."""
-    if not afip_responsibility_type_id:
-        return IVA_DEFAULT, False
-    tid = afip_responsibility_type_id[0]
-    if tid not in IVA_MAP:
-        return IVA_DEFAULT, True
-    return IVA_MAP[tid], tid in IVA_APROXIMADOS
+def iva_a_odoo(codigo_iva):
+    """Devuelve el id de responsabilidad AFIP, o None si no hay equivalencia."""
+    if codigo_iva is None:
+        return None
+    return IVA_A_ODOO.get(int(codigo_iva))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -276,102 +136,171 @@ def solo_digitos(s):
     return re.sub(r'\D', '', str(s or ''))
 
 
-def formatear_cuit(vat):
-    """CUIT de Odoo (con o sin guiones) → formato DEPOFIS 'XX-XXXXXXXX-X'.
-
-    Devuelve (formateado, valido). Con `valido=False` el CUIT no tiene 11
-    dígitos y la fila se marca para revisar: sin CUIT bien formado no se puede
-    verificar si el cliente ya existe en DEPOFIS, que es la única defensa
-    contra duplicarlo.
-    """
-    d = solo_digitos(vat)
+def formatear_cuit(digitos):
+    """'30663148229' → '30-66314822-9'. Si no tiene 11 dígitos, lo devuelve tal cual."""
+    d = solo_digitos(digitos)
     if len(d) == 11:
-        return '{}-{}-{}'.format(d[0:2], d[2:10], d[10:11]), True
-    return d[:13], False
+        return '{}-{}-{}'.format(d[0:2], d[2:10], d[10:11])
+    return d
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  CONCEPTOS — alcance: los sub-conceptos no se sincronizan
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# Una Referencia Interna con la forma `padre-sufijo` (10303-30, 30055-90,
-# 10301-180) no es un código de `Concepfc`: es un HIJO del concepto `padre`.
-# El sufijo es el tramo de días que factura —07, 10, 30, 60, 90, 99, 180— y la
-# apertura por tramo vive en Odoo, no en DEPOFIS. DEPOFIS tiene un solo concepto
-# (30055 · ALMACENAJE DE CONTENEDOR VACIO) y la cantidad de días la resuelve
-# `calcula`.
-#
-# Decisión de negocio (Facu, 2026-09-08): estos hijos quedan fuera de la
-# sincronización y fuera del informe. Darlos de alta crearía 78 conceptos que
-# DEPOFIS no usa y que romperían la unicidad del código padre.
-#
-# MEDIDO (2026-09-08): de los 345 productos de Odoo con Referencia Interna, 78
-# tienen esta forma. Los 78 tienen su padre presente en `Concepfc` y ninguno
-# de ellos está cargado como concepto propio — o sea que la lectura "es un
-# hijo, no un concepto" es la correcta en el 100 % de los casos. No hay ninguna
-# otra Referencia Interna no numérica: este patrón explica TODAS las que antes
-# se omitían por "no es numérica".
-#
-# La regla es la forma del código, no la cantidad de dígitos del sufijo: 10301-180
-# es tan hijo como 30055-30, y una regla de "guión y dos dígitos" lo dejaría
-# entrar.
+def cuit_valido(digitos):
+    """11 dígitos y dígito verificador correcto (módulo 11, el de AFIP).
 
-def concepto_padre(codigo):
-    """Código del concepto padre si `codigo` es un sub-concepto; si no, None.
-
-        concepto_padre('30055-30')  →  '30055'
-        concepto_padre('30055')     →  None
-
-    Se usa para excluirlos: ver el comentario de arriba.
+    Se chequea acá y no se deja que Odoo lo rechace: el módulo l10n_ar valida
+    el CUIT al crear el contacto y un rechazo ahí sería un ERROR en la corrida,
+    cuando en realidad es un dato a corregir en DEPOFIS.
     """
-    m = re.match(r'^(\d+)-(\d+)$', str(codigo or '').strip())
-    return m.group(1) if m else None
+    d = solo_digitos(digitos)
+    if len(d) != 11:
+        return False
+    pesos = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
+    resto = sum(int(a) * b for a, b in zip(d[:10], pesos)) % 11
+    dv = 0 if resto == 0 else (9 if resto == 1 else 11 - resto)
+    return dv == int(d[10])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  CONCEPTOS — unidad de cálculo
+#  CLIENTES — qué hacer con cada cliente activo de DEPOFIS
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# `depofis_calcula` no existe como campo en Odoo, pero sólo hace falta el dato
-# para los conceptos de Almacenaje. Se deriva del nombre replicando la regla que
-# YA corre en producción en `update_prefacturacion_odoo.py` (almacenaje_mask /
-# contenedor_mask), donde la Cantidad se calcula exactamente así. No es una
-# regla nueva: es la misma, escrita en el otro sentido.
+# Se busca primero por `depofis_code` y después por CUIT, en ese orden:
+#
+#   1. Algún contacto de Odoo ya tiene este clie_nro como Código DEPOFIS
+#        → sin cambios. No se toca: la rutina sólo actualiza a los que les
+#          falta el código (decisión de Facu, 2026-10-09).
+#   2. CUIT inválido → OMITIDO. El CUIT es el único chequeo: es la única forma
+#      de saber que no se está duplicando un contacto.
+#   3. Ningún contacto de Odoo con ese CUIT → ALTA.
+#   4. Un único contacto con ese CUIT, activo y sin Código DEPOFIS → VINCULAR.
+#   5. Cualquier otra cosa es ambigua y se OMITE con el motivo:
+#        · el CUIT ya está vinculado a OTRO clie_nro (cliente duplicado en
+#          DEPOFIS — vincular este segundo dejaría dos códigos para un CUIT);
+#        · más de un contacto sin código con ese CUIT (duplicado en Odoo);
+#        · el único que hay está archivado.
+#
+# Sólo cuentan los contactos "comerciales" (sin parent_id): los contactos hijos
+# heredan el CUIT y el Código DEPOFIS de la empresa, y contarlos haría que toda
+# empresa con dos personas de contacto pareciera duplicada.
 
-def resolver_calcula(nombre_producto):
-    """Devuelve (calcula, revisar).
+DecisionCliente = namedtuple('DecisionCliente', ['accion', 'partner_id', 'motivo'])
 
-    - nombre con "Almacenaje" y "Contenedor"  → 'Dias'
-    - nombre con "Almacenaje" sin "Contenedor" → 'Dias * M3' (almacenaje de
-      mercadería: Cantidad = Días × Volumen)
-    - cualquier otro                           → 'Nada'
 
-    `revisar=True` cuando el nombre sugiere un concepto por período (dice
-    "Dias"/"Días") pero NO dice "Almacenaje": ese caso queda fuera de la regla
-    de producción — p. ej. "Bajada de Mercadería a Piso ... de 0 a 30 días" — y
-    se deja en 'Nada' marcado, en vez de adivinar una unidad de cálculo que
-    después multiplicaría mal una factura.
+def decidir_cliente(clie_nro, cuit_digitos, codigos_en_odoo, partners_por_cuit):
+    """`codigos_en_odoo`: set de los Códigos DEPOFIS (str) ya cargados en Odoo.
+    `partners_por_cuit`: {cuit_digitos: [{'id', 'depofis_code', 'active'}, …]},
+    sólo contactos comerciales.
+
+    `accion` es 'sin_cambios' | 'alta' | 'vincular' | 'omitido'.
     """
-    n = (nombre_producto or '').upper()
-    if 'ALMACENAJE' in n:
-        return ('Dias', False) if 'CONTENEDOR' in n else ('Dias * M3', False)
-    if 'DIAS' in n or 'DÍAS' in n:
-        return 'Nada', True
-    return 'Nada', False
+    if str(clie_nro) in codigos_en_odoo:
+        return DecisionCliente('sin_cambios', None, None)
+
+    if not cuit_valido(cuit_digitos):
+        return DecisionCliente(
+            'omitido', None,
+            'CUIT inválido o vacío en DEPOFIS ({}): sin CUIT válido no se puede saber si el '
+            'cliente ya existe en Odoo. Se corrige en DEPOFIS.'.format(cuit_digitos or 'vacío'))
+
+    candidatos = partners_por_cuit.get(cuit_digitos, [])
+    if not candidatos:
+        return DecisionCliente('alta', None, None)
+
+    con_otro_codigo = [p for p in candidatos if p.get('depofis_code')]
+    if con_otro_codigo:
+        codigos = ', '.join(sorted({str(p['depofis_code']).strip() for p in con_otro_codigo}))
+        return DecisionCliente(
+            'omitido', None,
+            'El CUIT ya está vinculado en Odoo al Código DEPOFIS {}: este cliente parece '
+            'duplicado en DEPOFIS. Vincularlo dejaría dos códigos para el mismo CUIT.'
+            .format(codigos))
+
+    activos = [p for p in candidatos if p.get('active', True)]
+    if len(activos) > 1:
+        return DecisionCliente(
+            'omitido', None,
+            'Hay {} contactos en Odoo con este CUIT y sin Código DEPOFIS (ids {}): están '
+            'duplicados en Odoo. Fusionarlos antes de vincular.'
+            .format(len(activos), ', '.join(str(p['id']) for p in activos)))
+    if not activos:
+        return DecisionCliente(
+            'omitido', None,
+            'El único contacto de Odoo con este CUIT está archivado (id {}): '
+            'desarchivarlo y la próxima corrida lo vincula.'.format(candidatos[0]['id']))
+
+    return DecisionCliente('vincular', activos[0]['id'], None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  CATEGORÍA COMERCIAL
+#  CLIENTES — completar datos sin pisar nada
 # ═══════════════════════════════════════════════════════════════════════════
 
-def resolver_categoria(category_ids, categoria_por_id):
-    """Primera etiqueta de Odoo que matchee una categoría DEPOFIS (tipo_cl).
+def es_vacio(valor):
+    """Vacío para Odoo: False, None, '' o [] (un many2one vacío llega como False)."""
+    if valor is None or valor is False:
+        return True
+    if isinstance(valor, str):
+        return not valor.strip()
+    if isinstance(valor, (list, tuple)):
+        return len(valor) == 0
+    return False
 
-    Odoo permite varias etiquetas por contacto y DEPOFIS acepta una sola, así
-    que se toma la primera que matchee. Devuelve (nombre, ambiguo): `ambiguo`
-    avisa que había más de una categoría válida y alguien eligió por el cliente.
+
+def completar_vacios(actual, deseado):
+    """Lo que hay que escribir en un contacto que se VINCULA.
+
+    Sólo los campos que en Odoo están vacíos: lo que alguien cargó a mano
+    nunca se pisa. `depofis_code` siempre va (es lo que falta, por definición).
+
+    `is_dassa` es un booleano y "vacío" no existe para él, así que sigue al
+    Salesperson: se escribe sólo si se está escribiendo `user_id`.
     """
-    encontradas = [categoria_por_id[cid] for cid in (category_ids or []) if cid in categoria_por_id]
-    if not encontradas:
-        return None, False
-    return encontradas[0], len(encontradas) > 1
+    vals = {}
+    for campo, valor in deseado.items():
+        if campo == 'is_dassa' or es_vacio(valor):
+            continue
+        if campo == 'depofis_code' or es_vacio(actual.get(campo)):
+            vals[campo] = valor
+    if 'user_id' in vals and 'is_dassa' in deseado:
+        vals['is_dassa'] = bool(deseado['is_dassa'])
+    return vals
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  CONCEPTOS — qué filas de Concepfc NO son conceptos
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Medido el 2026-10-09: de los 21 códigos de Concepfc que no existen en Odoo,
+# sólo 3 son conceptos reales. El resto es estructura de la tabla:
+#
+#   · separadores de sección: "----IMPORTACION MARITIMA----" (40000, 20000…)
+#   · filas sin detalle, y el código 0
+#   · conceptos marcados "NO USAR"
+#   · filas borradas (`us_del` cargado)
+#   · el 999999 "TESTING FACUNDO", que quedó de la prueba de escritura del
+#     2026-09-07 — sacarlo de DEPOFIS lo tiene que hacer quien lo administre
+#
+# Quedan FUERA DE ALCANCE —se publican con el motivo, no se descartan en
+# silencio— para que la exclusión se pueda auditar.
+
+CODIGOS_EXCLUIDOS = {
+    999999: 'Fila de prueba (TESTING) que quedó cargada en DEPOFIS el 2026-09-07',
+}
+
+
+def excluir_concepto(codigo, detalle, us_del=None):
+    """Devuelve el motivo si esta fila de Concepfc no es un concepto; si no, None."""
+    d = (detalle or '').strip()
+    if codigo is None or int(codigo) <= 0:
+        return 'Código 0 o vacío: no es un concepto'
+    if int(codigo) in CODIGOS_EXCLUIDOS:
+        return CODIGOS_EXCLUIDOS[int(codigo)]
+    if (us_del or '').strip():
+        return 'Concepto borrado en DEPOFIS'
+    if not d:
+        return 'Sin detalle: no es un concepto'
+    if d.startswith('-'):
+        return 'Separador de sección de la lista de conceptos, no un concepto'
+    if 'NO USAR' in d.upper():
+        return 'Marcado "NO USAR" en DEPOFIS'
+    return None

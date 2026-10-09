@@ -44,8 +44,6 @@ try:
     _TOKENS = {
         'ODOO_KEY': getattr(_t, 'odoo_key', None),
         'ODOO_DB': getattr(_t, 'odoo_db', None),
-        'DEPOFIS_USER': getattr(_t, 'username', None),
-        'DEPOFIS_PASSWORD': getattr(_t, 'password', None),
     }
     _TOKENS = {k: v for k, v in _TOKENS.items() if v}
 except ImportError:
@@ -67,7 +65,7 @@ def requerido(clave, para_que):
     return v
 
 
-# ─── Odoo (solo lectura) ───────────────────────────────────────────────────
+# ─── Odoo ───────────────────────────────────────────────────
 
 ODOO_URL = valor('ODOO_URL', 'https://gestion.dassa.com.ar')
 ODOO_DB = valor('ODOO_DB')  # opcional: si falta, el cliente la descubre
@@ -85,38 +83,10 @@ def odoo_key():
 
 # ─── DEPOFIS ───────────────────────────────────────────────────────────────
 #
-# Dos fuentes, para dos cosas distintas:
-#
-#   · ESPEJO  (`depofis_mirror.*` en Smart DASSA Central) — para LEER. Es la
-#     fuente por default de las corridas de simulación, y es lo que manda la
-#     regla de datos de DASSA: las apps nuevas leen el espejo, no el origen.
-#   · ORIGEN  (el SQL Server) — obligatorio para ESCRIBIR. Una corrida de
-#     aplicación no puede usar el espejo: verificar contra una copia de ayer si
-#     un CUIT ya existe es exactamente cómo se duplica un cliente.
-#
-# ⚠️ SERVER va como "host,puerto", SIN el nombre de instancia: desde Linux la
-# forma con instancia necesita al SQL Browser en UDP 1434 y no responde.
-
-DEPOFIS_SERVER = valor('DEPOFIS_SERVER', '101.44.8.58,1436')
-
-FUENTES = ('espejo', 'origen')
-
-
-def resolver_fuente(pedida, modo):
-    """Devuelve (fuente, aviso). Nunca deja una aplicación leyendo del espejo.
-
-    El default es `espejo` para simular y `origen` para aplicar. Si alguien pide
-    explícitamente el espejo para una corrida de aplicación, se corrige a origen
-    y se avisa — no se falla, pero tampoco se le hace caso: el alta se decide
-    contra el dato vivo o no se decide.
-    """
-    if modo == 'aplicacion':
-        if pedida == 'espejo':
-            return 'origen', (
-                'Se pidió leer del espejo en una corrida de APLICACIÓN. Se usa el origen: '
-                'chequear contra una copia si un CUIT ya existe es como se duplica un cliente.')
-        return 'origen', None
-    return (pedida or 'espejo'), None
+# DEPOFIS se LEE y nada más: del espejo `depofis_mirror` en Smart DASSA Central,
+# que es lo que manda la regla de datos de DASSA (las apps nuevas leen el
+# espejo, no el SQL Server). Esta rutina no tiene credenciales de DEPOFIS ni
+# código que pueda escribirle (decisión de Facu, 2026-10-09). Ver sincro/espejo.py.
 
 # ─── La app ────────────────────────────────────────────────────────────────
 
@@ -127,7 +97,7 @@ SINCRO_API_URL = valor('SINCRO_API_URL', 'http://127.0.0.1:3038')
 #  EL FRENO
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# Hacen falta DOS cosas para que la rutina escriba una sola fila en DEPOFIS:
+# Hacen falta DOS cosas para que la rutina escriba una sola cosa en ODOO:
 #
 #   1. el flag `--aplicar` en la línea de comandos, y
 #   2. la variable de entorno SINCRO_PERMITIR_APLICAR=si
@@ -156,6 +126,6 @@ def resolver_modo(pidio_aplicar):
     if not aplicar_permitido():
         return 'simulacion', (
             'Se pidió --aplicar pero SINCRO_PERMITIR_APLICAR no está en "si": '
-            'la corrida va en SIMULACIÓN y no escribe nada en DEPOFIS. '
+            'la corrida va en SIMULACIÓN y no escribe nada en Odoo. '
             'Para habilitar la escritura hay que setear esa variable en el .env del box.')
     return 'aplicacion', None
