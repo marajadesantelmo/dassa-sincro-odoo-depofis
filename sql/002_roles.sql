@@ -2,8 +2,8 @@
 --
 -- `sincro_odoo_depofis_app` es el único rol que usa el server: R/W sobre su propio
 -- schema y nada más. No necesita leer `depofis_mirror` ni `depofis.*` — la
--- rutina Python compara contra el SQL Server de origen y publica el resultado
--- ya resuelto.
+-- rutina Python lee el espejo con su propio rol y publica el resultado ya
+-- resuelto.
 --
 -- ⚠️ Cambiar la contraseña antes de aplicar esto en producción y dejarla sólo
 -- en el `.env` del box. El literal de acá es un placeholder.

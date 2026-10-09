@@ -24,9 +24,12 @@
 ALTER TABLE sincro_odoo_depofis.novedad
   DROP CONSTRAINT IF EXISTS novedad_accion_check;
 
+-- NOT VALID: `aplicar_sql.py` re-corre todas las migraciones en orden, y desde
+-- la 022 existen filas 'vincular' que este CHECK no conoce. Sin NOT VALID, una
+-- re-aplicación cortaría acá. La 022 lo reemplaza enseguida por el completo.
 ALTER TABLE sincro_odoo_depofis.novedad
   ADD CONSTRAINT novedad_accion_check
-  CHECK (accion IN ('alta', 'omitido', 'error', 'fuera_alcance'));
+  CHECK (accion IN ('alta', 'omitido', 'error', 'fuera_alcance')) NOT VALID;
 
 -- Una fila fuera de alcance no puede pedir atencion: es una contradiccion en
 -- los terminos y la pantalla la mostraria en el filtro por default, que es

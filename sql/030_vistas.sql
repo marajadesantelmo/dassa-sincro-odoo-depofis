@@ -32,7 +32,11 @@ SELECT
   id AS corrida_id,
   LAG(id) OVER (ORDER BY iniciada_en, id) AS anterior_id
 FROM sincro_odoo_depofis.corrida
-WHERE estado IN ('ok', 'con_errores');
+WHERE estado IN ('ok', 'con_errores')
+  -- Las corridas 0.1.x iban en la dirección contraria (Odoo → DEPOFIS) y
+  -- evaluaban otra cosa: compararse contra ellas marcaría todo como NUEVO. La
+  -- primera corrida 0.2 se presenta como "primera corrida", que es lo que es.
+  AND coalesce(version_rutina, '') NOT LIKE '0.1.%';
 
 COMMENT ON VIEW sincro_odoo_depofis.v_corrida_anterior IS
   'Para cada corrida completada, la corrida completada previa. Base del calculo de es_nueva.';
@@ -61,6 +65,7 @@ SELECT
   n.vendedor_depofis,
   n.payload,
   n.depofis_id,
+  n.ejecutada,
   n.creado_en,
   ca.anterior_id,
   (
@@ -69,7 +74,7 @@ SELECT
       SELECT 1 FROM sincro_odoo_depofis.novedad p
        WHERE p.corrida_id = ca.anterior_id
          AND p.tipo = n.tipo
-         AND p.odoo_id = n.odoo_id
+         AND p.depofis_id = n.depofis_id
     )
   ) AS es_nueva
 FROM sincro_odoo_depofis.novedad n
@@ -97,6 +102,10 @@ SELECT
   c.vendedor_map,
   c.error,
   c.version_rutina,
+  -- Lo único que la pantalla toma de `totales`: lo que NO cambió (clientes ya
+  -- vinculados, conceptos ya presentes, clientes inactivos). Esas filas no se
+  -- publican una por una, así que no hay de dónde contarlas en SQL.
+  c.totales,
   ca.anterior_id,
   COUNT(n.id)                                                          AS evaluados,
   COUNT(n.id) FILTER (WHERE n.tipo = 'cliente')                        AS clientes,
@@ -104,12 +113,15 @@ SELECT
   COUNT(n.id) FILTER (WHERE n.accion = 'alta')                         AS altas,
   COUNT(n.id) FILTER (WHERE n.accion = 'alta' AND n.tipo = 'cliente')  AS altas_clientes,
   COUNT(n.id) FILTER (WHERE n.accion = 'alta' AND n.tipo = 'concepto') AS altas_conceptos,
+  COUNT(n.id) FILTER (WHERE n.accion = 'vincular')                     AS vinculaciones,
+  -- Lo que se sube o se modifica en Odoo: es lo que muestra la pantalla.
+  COUNT(n.id) FILTER (WHERE n.accion IN ('alta', 'vincular'))          AS a_sincronizar,
+  COUNT(n.id) FILTER (WHERE n.ejecutada)                               AS ejecutadas,
   COUNT(n.id) FILTER (WHERE n.accion = 'omitido')                      AS omitidos,
   COUNT(n.id) FILTER (WHERE n.accion = 'error')                        AS errores,
-  -- Lo que la rutina descartó por no ser asunto suyo: proveedores del lado de
-  -- clientes, sub-conceptos del lado de conceptos. No son omisiones ni trabajo
-  -- pendiente. Se cuentan aparte a propósito — sumarlos a `omitidos` haría que
-  -- ese número dejara de significar "algo que alguien tiene que resolver".
+  -- Lo que la rutina descartó por no ser asunto suyo (desde la 0.2: filas de
+  -- Concepfc que no son conceptos — separadores, "NO USAR", la fila de prueba).
+  -- No son omisiones ni trabajo pendiente: se cuentan aparte a propósito.
   COUNT(n.id) FILTER (WHERE n.accion = 'fuera_alcance')                AS fuera_alcance,
   -- Y abierto por tipo, porque los dos maestros se descartan por motivos
   -- distintos y la pantalla los muestra en solapas separadas. Sin esto, el
@@ -122,10 +134,10 @@ SELECT
   -- denominador honesto de la pantalla: `evaluados` incluye lo descartado.
   COUNT(n.id) FILTER (WHERE n.accion <> 'fuera_alcance')               AS en_alcance,
   COUNT(n.id) FILTER (WHERE n.requiere_atencion)                       AS requieren_atencion,
-  -- Clientes que se darían de alta SIN vendedor resuelto. Es el número que
-  -- mide el trabajo pendiente en Odoo, y el que la pantalla pone arriba.
+  -- Clientes que se dan de alta en Odoo SIN Salesperson: su vendedor de
+  -- DEPOFIS (0, 1, 2, 9, 19) no tiene usuario en Odoo.
   COUNT(n.id) FILTER (
-    WHERE n.tipo = 'cliente' AND n.accion = 'alta' AND n.vendedor_depofis IS NULL
+    WHERE n.tipo = 'cliente' AND n.accion = 'alta' AND n.vendedor_uid IS NULL
   ) AS altas_sin_vendedor
 FROM sincro_odoo_depofis.corrida c
 LEFT JOIN sincro_odoo_depofis.novedad n ON n.corrida_id = c.id

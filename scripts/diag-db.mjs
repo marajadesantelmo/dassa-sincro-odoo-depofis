@@ -29,7 +29,7 @@ const VISTAS = ['v_corrida_anterior', 'v_novedad', 'v_corrida_resumen', 'v_ultim
 const COLUMNAS_CLAVE = {
   corrida: ['modo', 'origen', 'estado', 'vendedor_map', 'totales', 'duracion_ms'],
   novedad: ['tipo', 'accion', 'requiere_atencion', 'vendedor_uid', 'vendedor_nombre',
-    'es_dassa', 'vendedor_depofis', 'payload', 'depofis_id'],
+    'es_dassa', 'vendedor_depofis', 'payload', 'depofis_id', 'ejecutada'],
 };
 
 let fallas = 0;
@@ -93,10 +93,11 @@ try {
     const ins = await cliente.query(
       `INSERT INTO sincro_odoo_depofis.corrida (modo, origen, vendedor_map)
        VALUES ('simulacion', 'cli', '{}'::jsonb) RETURNING id`);
+    // Sin odoo_id y con 'vincular': si la 022 no está aplicada, esto falla.
     await cliente.query(
-      `INSERT INTO sincro_odoo_depofis.novedad (corrida_id, tipo, odoo_id, odoo_nombre, accion)
-       VALUES ($1, 'cliente', 0, 'PRUEBA diag-db', 'omitido')`, [ins.rows[0].id]);
-    ok('el rol puede escribir en corrida y novedad');
+      `INSERT INTO sincro_odoo_depofis.novedad (corrida_id, tipo, odoo_id, odoo_nombre, accion, depofis_id)
+       VALUES ($1, 'cliente', NULL, 'PRUEBA diag-db', 'vincular', '0')`, [ins.rows[0].id]);
+    ok('el rol puede escribir en corrida y novedad (con la 022 aplicada)');
   } catch (e) {
     mal(`el rol NO puede escribir: ${e.message}`);
     console.log('  → revisá los GRANT de sql/002_roles.sql');

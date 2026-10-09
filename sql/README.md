@@ -8,17 +8,17 @@ vez, sobre **Smart DASSA Central** (`txlotccsiqaypkzobkxm`, sa-east-1).
 | `001_schema.sql` | crea el schema `sincro_odoo_depofis` |
 | `002_roles.sql` | crea el rol `sincro_odoo_depofis_app` y le da los GRANT |
 | `010_corridas.sql` | una fila por ejecución de `sincronizar.py` |
-| `020_novedades.sql` | cada registro de Odoo que esa corrida evaluó |
+| `020_novedades.sql` | cada registro que esa corrida evaluó |
+| `021_fuera_alcance.sql` | la acción `fuera_alcance` |
+| `022_depofis_a_odoo.sql` | la dirección pasa a DEPOFIS → Odoo: acción `vincular`, `ejecutada`, `odoo_id` opcional |
 | `030_vistas.sql` | `v_novedad` (con `es_nueva`), `v_corrida_resumen`, `v_ultima_corrida` |
 
 ## Por qué acá y no en el cluster de otra app
 
-Porque no hay nada que joinear. A diferencia de `control-stock` —que vive en
-este cluster **porque** `depofis_mirror` está acá y así puede generar el control
-con un `INSERT ... SELECT`—, esta app no lee ninguna de las dos fuentes desde
-Postgres: Odoo se lee por XML-RPC y DEPOFIS por SQL Server, los dos desde la
-rutina Python. Lo que se guarda acá es el **resultado** de la comparación, ya
-resuelto.
+Porque no hay nada que joinear. Esta app no lee ninguna de las dos fuentes
+desde SQL: Odoo se lee por XML-RPC y DEPOFIS del espejo `depofis_mirror`, los
+dos desde la rutina Python. Lo que se guarda acá es el **resultado** de la
+comparación, ya resuelto.
 
 La consecuencia práctica: si un día hubiera que mudar `sincro_odoo_depofis` a otro
 proyecto, alcanza con cambiar el DSN. No hay ninguna función SQL que dependa
