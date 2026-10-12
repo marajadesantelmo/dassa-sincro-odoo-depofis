@@ -14,7 +14,7 @@
 module.exports = {
   apps: [{
     name: 'dassa-sincro-odoo-depofis',
-    cwd: '/home/dassa/dassa4/apps/sincro-odoo-depofis',
+    cwd: '/home/dassa/dassa4/odoo/apps/sincro-odoo-depofis',
     script: 'server/index.js',
     env: {
       NODE_ENV: 'production',
