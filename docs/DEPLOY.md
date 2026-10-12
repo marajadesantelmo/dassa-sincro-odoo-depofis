@@ -16,7 +16,7 @@ sigue es cómo se actualiza y cómo se pone a correr la rutina.
 ## 1. Actualizar el código
 
 ```bash
-cd ~/dassa4/apps/sincro-odoo-depofis
+cd ~/dassa4/odoo/apps/sincro-odoo-depofis
 git status -sb                       # sólo deberían aparecer AGENTS.md y package-lock.json sin trackear
 git log --oneline origin/main..HEAD  # tiene que estar vacío: nadie commiteó en el box
 git pull --ff-only
@@ -126,8 +126,12 @@ Cargado el 2026-10-09 (en el crontab de `dassa`):
 
 ```cron
 # Sincro DEPOFIS -> Odoo · cada hora a los :30, L-V 8 a 20 (espejo y ETL corren a los :00). flock evita dos corridas a la vez.
-30 8-20 * * 1-5 cd /home/dassa/dassa4/apps/sincro-odoo-depofis && flock -n /tmp/sincro-odoo-depofis.lock /usr/bin/python3 sincronizar.py --aplicar --origen cron >> logs/cron.log 2>&1
+30 8-20 * * 1-5 cd /home/dassa/dassa4/odoo/apps/sincro-odoo-depofis && flock -n /tmp/sincro-odoo-depofis.lock /usr/bin/python3 sincronizar.py --aplicar --origen cron >> logs/cron.log 2>&1
 ```
+
+> La app vive en `~/dassa4/odoo/apps/` desde el 2026-10-12 (Santi juntó todo lo
+> de Odoo ahí). `~/dassa4/apps/sincro-odoo-depofis` quedó como symlink, así que
+> una línea de cron con la ruta vieja sigue andando.
 
 **Cada hora y no una vez por día**: el ETL de prefacturación busca a los
 clientes por CUIT en Odoo cada hora, así que un cliente nuevo de DEPOFIS tiene

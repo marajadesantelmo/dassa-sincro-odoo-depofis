@@ -13,7 +13,7 @@
  * Corre EN EL BOX, como usuario `dassa` (necesita leer el .env del IdP):
  *
  *   sudo -iu dassa
- *   cd /home/dassa/dassa4/apps/sincro-odoo-depofis
+ *   cd /home/dassa/dassa4/odoo/apps/sincro-odoo-depofis
  *
  *   node scripts/setup-idp.cjs                              # dry-run: qué haría
  *   node scripts/setup-idp.cjs --apply                      # registra la app

@@ -21,7 +21,7 @@
   },
   "stack": ["node", "express", "react", "typescript", "postgres", "python"],
   "repo": "github.com/marajadesantelmo/dassa-sincro-odoo-depofis",
-  "vps_path": "/home/dassa/dassa4/apps/sincro-odoo-depofis",
+  "vps_path": "/home/dassa/dassa4/odoo/apps/sincro-odoo-depofis",
   "roles": [
     {
       "key": "sincro-admin",
