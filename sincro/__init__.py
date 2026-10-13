@@ -13,4 +13,4 @@ El punto de entrada es `sincronizar.py`, en la raíz del repo.
 
 # 0.2: se invirtió la dirección (era Odoo → DEPOFIS). Las vistas usan el
 # prefijo para no comparar una corrida 0.2 contra una 0.1 (ver 030_vistas.sql).
-VERSION = '0.2.0'
+VERSION = '0.2.1'

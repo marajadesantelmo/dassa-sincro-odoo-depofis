@@ -56,6 +56,7 @@ corría) y después se relee el registro para verificar que quedó.
 import argparse
 import io
 import os
+import signal
 import sys
 import traceback
 from datetime import datetime
@@ -97,6 +98,19 @@ NOMBRE_CAMPO = {
     'city': 'ciudad', 'zip': 'código postal', 'phone': 'teléfono', 'email': 'email',
     'country_id': 'país', 'category_id': 'etiqueta',
 }
+
+
+class Interrumpida(BaseException):
+    """La corrida se cortó desde afuera (SIGTERM; el Ctrl-C llega como KeyboardInterrupt).
+
+    Hereda de BaseException, igual que KeyboardInterrupt: no la tiene que
+    atrapar ningún `except Exception` de adentro, que la trataría como el error
+    de UN registro y seguiría con el siguiente.
+    """
+
+
+def _sigterm(_signum, _frame):
+    raise Interrumpida('SIGTERM')
 
 
 def log(msg=''):
@@ -499,9 +513,15 @@ def main():
         'version_rutina': VERSION,
     })
 
+    # Un `kill` llega como SIGTERM, que por default mata el proceso en seco. Se
+    # convierte en excepción para que pase por el cierre de abajo y publique lo
+    # que ya se escribió en Odoo.
+    signal.signal(signal.SIGTERM, _sigterm)
+
     totales = {}
     estado = 'ok'
     error = None
+    interrumpida = False
     try:
         if args.solo != 'conceptos':
             totales['clientes'] = procesar_clientes(acceso, escritor, pub)
@@ -509,12 +529,27 @@ def main():
             totales['conceptos'] = procesar_conceptos(acceso, escritor, pub)
         if any(t.get('error') for t in totales.values()):
             estado = 'con_errores'
+    except (KeyboardInterrupt, Interrumpida) as e:
+        # La corrida 15 (2026-10-09) se cortó con Ctrl-C a mitad de camino:
+        # ~54 escrituras en Odoo pasaron y ninguna quedó registrada, porque las
+        # filas se publican recién al cerrar y el Ctrl-C se salteaba el cierre.
+        # Ahora se cierra igual: lo escrito se publica y la corrida queda
+        # `fallida` con el motivo.
+        estado = 'fallida'
+        interrumpida = True
+        error = ('Interrumpida ({}) después de {} escritura(s) en Odoo. Lo escrito hasta '
+                 'ese momento se publicó igual.'.format(str(e) or 'Ctrl-C', escritor.hechas))
+        log('\n✗ ' + error)
     except Exception:
         estado = 'fallida'
         error = traceback.format_exc()
         log('\n✗ La corrida falló:\n' + error)
     finally:
         acceso.cerrar()
+        # Durante el cierre, un segundo Ctrl-C no tiene que dejar la corrida a
+        # medio publicar.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     totales['modo'] = modo
     totales['limite'] = args.limite
@@ -529,6 +564,8 @@ def main():
         log('\nEscrituras en Odoo: {}. Detalle en la app:'.format(escritor.hechas))
     log('  https://apps.dassa.com.ar/sincro-odoo-depofis/')
 
+    if interrumpida:
+        return 130
     return 0 if estado in ('ok', 'con_errores') else 1
 
 
