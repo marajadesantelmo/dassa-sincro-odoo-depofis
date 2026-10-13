@@ -63,6 +63,14 @@ export default function Ayuda() {
         </div>
       </Seccion>
 
+      <Seccion titulo="Las pantallas">
+        <div className="p-3 text-xs">
+          <Fila que="Sincronizado" dice="La portada. Todo lo que la rutina dio de alta o vinculó en Odoo, de todas las corridas, con la fecha y un link a la ficha de Odoo. Se puede filtrar por fecha, buscar por nombre, CUIT o código, y bajar a Excel." />
+          <Fila que="Última corrida" dice="Qué hizo la última ejecución de la rutina y, sobre todo, lo que NO se pudo sincronizar (CUIT inválido, duplicados en Odoo) y hay que corregir a mano." />
+          <Fila que="Corridas" dice="Cada ejecución de la rutina, la más reciente arriba. Una fecha vieja arriba de todo quiere decir que la rutina dejó de correr." />
+        </div>
+      </Seccion>
+
       <Seccion titulo="Qué significa cada marca">
         <div className="p-3 text-xs">
           <Fila que="ALTA" dice="No existe en Odoo: se crea. En simulación es lo que se crearía; en aplicación, con ✓, lo que se creó." />

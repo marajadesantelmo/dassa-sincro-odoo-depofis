@@ -164,3 +164,18 @@ Hecho el 2026-10-09:
       3 conceptos — verificados contra DEPOFIS, 0 inconsistencias
 - [x] cron cargado
 - [ ] variables `DEPOFIS_*` borradas del `.env` (confirmar)
+
+---
+
+## Checklist 0.2.1 (historial + corridas cortadas)
+
+Sin migraciones: el historial lee las tablas que ya existen.
+
+- [ ] `git pull --ff-only` limpio
+- [ ] `npx tsc -p tsconfig.app.json --noEmit && npm run build`, restart, health OK
+- [ ] reconstruir la corrida 15 (una sola vez):
+      `python3 scripts/reconstruir_corrida.py --corrida 15 --plantilla 14` (muestra:
+      tienen que ser 54 — 18 altas y 36 vinculaciones — y ninguna descartada) y
+      después lo mismo con `--aplicar`
+- [ ] la portada muestra el historial: 25 + 62 + 3 de la primera sincronización
+      más lo que hizo el cron desde entonces

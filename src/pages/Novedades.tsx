@@ -156,7 +156,7 @@ export default function Novedades() {
           <>
             {fechaHora(corrida.iniciada_en)} · {corrida.origen === 'cron' ? 'automática' : corrida.disparada_por || 'manual'}
             {' · '}{duracion(corrida.duracion_ms)}
-            {!esUltima && <> · <Link to="/" className="text-dassa underline">ver la última</Link></>}
+            {!esUltima && <> · <Link to="/ultima" className="text-dassa underline">ver la última</Link></>}
           </>
         }
         accion={

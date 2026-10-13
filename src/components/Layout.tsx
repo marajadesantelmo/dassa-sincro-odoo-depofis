@@ -66,6 +66,21 @@ export default function Layout() {
 
         <nav className="flex items-center gap-1.5 ml-2">
           <NavLink
+            to="/"
+            end
+            className={({ isActive }) => `${NAV} ${isActive ? 'bg-white text-dassa' : 'bg-white/15 text-white hover:bg-white/25'}`}
+            title="Todo lo que se dio de alta o vinculó en Odoo"
+          >
+            ✅ <span className="hidden sm:inline">Sincronizado</span>
+          </NavLink>
+          <NavLink
+            to="/ultima"
+            className={({ isActive }) => `${NAV} ${isActive ? 'bg-white text-dassa' : 'bg-white/15 text-white hover:bg-white/25'}`}
+            title="La última corrida: lo que hizo y lo que no se pudo sincronizar"
+          >
+            🕐 <span className="hidden sm:inline">Última corrida</span>
+          </NavLink>
+          <NavLink
             to="/corridas"
             className={({ isActive }) => `${NAV} ${isActive ? 'bg-white text-dassa' : 'bg-white/15 text-white hover:bg-white/25'}`}
             title="Todas las corridas de la rutina"

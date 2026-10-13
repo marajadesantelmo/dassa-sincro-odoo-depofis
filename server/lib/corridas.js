@@ -92,6 +92,41 @@ export async function resumen() {
   return { corrida, novedades };
 }
 
+// ─── Historial: todo lo que se escribió en Odoo ────────────────────────────
+
+// Tope del historial. Al 2026-10-13 son ~100 filas y suman unas pocas por día:
+// entra entero en una respuesta y la pantalla filtra en el navegador. Si algún
+// día se pasa, la respuesta lo dice (`truncado`) en vez de cortar en silencio.
+const LIMITE_HISTORIAL = 5000;
+
+/**
+ * Lo sincronizado, de TODAS las corridas: altas y vinculaciones que se
+ * escribieron en Odoo y se verificaron releyendo el registro (`ejecutada`).
+ *
+ * El estado de la corrida no importa: una corrida `fallida` puede haber
+ * escrito antes de caerse, y esas escrituras pasaron en Odoo igual.
+ *
+ * La fecha es la de inicio de la corrida y no `novedad.creado_en`: ésa es la
+ * hora en que la fila se guardó acá, que en una corrida reconstruida después
+ * (la 15) no tiene nada que ver con cuándo se escribió Odoo.
+ */
+export async function listarSincronizados() {
+  const r = await query(
+    `SELECT n.id, n.corrida_id, n.tipo, n.odoo_id, n.odoo_nombre, n.clave, n.accion, n.motivo,
+            n.vendedor_uid, n.vendedor_nombre, n.es_dassa, n.vendedor_depofis, n.payload,
+            n.depofis_id, c.iniciada_en AS sincronizado_en, c.origen, c.disparada_por
+       FROM sincro_odoo_depofis.novedad n
+       JOIN sincro_odoo_depofis.corrida c ON c.id = n.corrida_id
+      WHERE n.ejecutada
+        AND n.accion IN ('alta', 'vincular')
+      ORDER BY c.iniciada_en DESC, n.id DESC
+      LIMIT $1`,
+    [LIMITE_HISTORIAL + 1],
+  );
+  const truncado = r.rows.length > LIMITE_HISTORIAL;
+  return { filas: truncado ? r.rows.slice(0, LIMITE_HISTORIAL) : r.rows, truncado };
+}
+
 // ─── Escritura (sólo /api/servicio/*) ──────────────────────────────────────
 
 const MODOS = ['simulacion', 'aplicacion'];

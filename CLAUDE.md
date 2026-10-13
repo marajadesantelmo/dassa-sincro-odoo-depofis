@@ -4,10 +4,12 @@
 > El repo, el `app_key` y el proceso pm2 se siguen llamando `sincro-odoo-depofis`
 > por historia; **la dirección es DEPOFIS → Odoo**.
 >
-> **Estado (2026-10-09): 0.2 EN PRODUCCIÓN y escribiendo en Odoo.** Cron cada
+> **Estado (2026-10-13): 0.2 EN PRODUCCIÓN y escribiendo en Odoo.** Cron cada
 > hora a los :30, L-V 8 a 20, con `--aplicar` (ver `docs/DEPLOY.md` §6). La
 > primera sincronización (corridas 14–16) creó 25 clientes, vinculó 62 y creó 3
-> conceptos; todo verificado contra DEPOFIS.
+> conceptos; todo verificado contra DEPOFIS. **0.2.1** (historial como portada,
+> corridas cortadas que publican igual, reconstrucción de la 15): escrita,
+> falta deployar.
 
 ## 🧭 La dirección, y por qué este archivo se reescribió
 
@@ -141,20 +143,31 @@ Con una sola, simulación (y lo avisa). Y la escritura está cerrada en
 DEPOFIS no tiene freno porque no hay nada que frenar: el espejo se abre con
 `set_session(readonly=True)` y no hay credenciales del SQL Server.
 
-## Qué muestra la pantalla
+## Qué muestra la app
 
-Por default **sólo lo que se sube o se modifica en Odoo**: altas, vinculaciones
-y los errores al intentarlo (Facu, 2026-10-09). Lo que no se puede sincronizar
-("No se pueden") y lo que no es un concepto ("No son conceptos") va detrás de
-filtros separados. Lo que ya está sincronizado no se publica fila por fila: se
-cuenta en `corrida.totales` y la pantalla lo muestra como un número.
+**`/` — Sincronizado (la portada, desde 2026-10-13).** El historial: todo lo
+que la rutina escribió en Odoo, de **todas** las corridas — altas y
+vinculaciones con `ejecutada = true`, sin importar el estado de la corrida (una
+`fallida` puede haber escrito antes de caerse). Filtros por tipo, acción, texto
+y fechas, y Excel. Lo lee `GET /api/sincronizados` (`listarSincronizados` en
+`server/lib/corridas.js`), sin vista SQL propia: es un JOIN novedad × corrida.
+La fecha de cada fila es el **inicio de su corrida**, no `novedad.creado_en`
+(que en filas reconstruidas es la fecha de la reconstrucción). Pedido de Facu:
+cada corrida horaria hace poco o nada, y mirar sólo la última no decía qué pasó.
+
+**`/ultima` y `/corridas/:id` — una corrida.** Por default sólo lo que se sube
+o modifica en Odoo: altas, vinculaciones y errores (Facu, 2026-10-09). Lo que no
+se puede sincronizar ("No se pueden") y lo que no es un concepto ("No son
+conceptos") va detrás de filtros separados. Lo que ya estaba sincronizado no se
+publica fila por fila: se cuenta en `corrida.totales`.
 
 ## La primera sincronización (2026-10-09)
 
 Las cifras de la simulación previa; se aplicaron en las corridas 14 (una sola,
-`--limite 1`: vinculó Plasticos Dise, clie 1341), 15 (cortada a mano a mitad:
-quedó cerrada como `fallida`, sus ~54 escrituras se verificaron en Odoo) y 16
-(el resto, `ok`).
+`--limite 1`: vinculó Plasticos Dise, clie 1341), 15 (cortada con Ctrl-C a
+mitad: 18 altas y 36 vinculaciones que **no se publicaron** — quedó cerrada
+como `fallida` a mano y sus filas se reconstruyeron desde Odoo con
+`scripts/reconstruir_corrida.py --corrida 15 --plantilla 14`) y 16 (el resto, `ok`).
 
 | | |
 |---|---|
@@ -235,6 +248,13 @@ node scripts/setup-idp.cjs --quien
   falla, como `fallida`, para que no quede colgada ni sirva de "anterior".
 - **`aplicar_sql.py` re-corre todas las migraciones.** Por eso el CHECK de `021`
   es `NOT VALID`: si no, una re-aplicación con filas `vincular` cortaría ahí.
+- **Una corrida cortada tiene que publicar lo que escribió** (0.2.1). Las filas
+  se mandan a la app recién al cerrar; hasta la 0.2.0 un Ctrl-C se salteaba el
+  cierre y la corrida 15 perdió el registro de 54 escrituras reales en Odoo.
+  Ahora Ctrl-C y SIGTERM pasan por el cierre: se publica lo hecho y la corrida
+  queda `fallida`, código de salida 130. Un `kill -9` o un apagón siguen
+  perdiendo las filas (no las escrituras): para eso está
+  `scripts/reconstruir_corrida.py`.
 
 ## Gotchas
 

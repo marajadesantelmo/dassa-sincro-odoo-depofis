@@ -144,3 +144,31 @@ export interface RespuestaResumen {
   corrida: Corrida | null;
   novedades: Novedad[];
 }
+
+/** Una fila del historial: algo que la rutina escribió en Odoo y verificó.
+ *  `sincronizado_en` es el inicio de la corrida que lo escribió. */
+export interface Sincronizado {
+  id: number;
+  corrida_id: number;
+  tipo: TipoNovedad;
+  odoo_id: number | null;
+  odoo_nombre: string;
+  clave: string | null;
+  accion: 'alta' | 'vincular';
+  motivo: string | null;
+  vendedor_uid: number | null;
+  vendedor_nombre: string | null;
+  es_dassa: boolean | null;
+  vendedor_depofis: number | null;
+  payload: PayloadNovedad;
+  depofis_id: string | null;
+  sincronizado_en: string;
+  origen: 'cron' | 'cli' | 'manual';
+  disparada_por: string | null;
+}
+
+export interface RespuestaSincronizados {
+  filas: Sincronizado[];
+  /** true si el historial superó el tope del server y vino cortado. */
+  truncado: boolean;
+}

@@ -39,6 +39,7 @@ import { servicioConfigurado } from './lib/servicio.js';
 import { ErrorDeNegocio } from './lib/errores.js';
 import meRouter from './routes/me.js';
 import corridasRouter from './routes/corridas.js';
+import sincronizadosRouter from './routes/sincronizados.js';
 import servicioRouter from './routes/servicio.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -157,6 +158,7 @@ app.use('/api/servicio', servicioRouter);
 app.use('/api', requireSession());
 app.use('/api/me', meRouter);
 app.use('/api/corridas', corridasRouter);
+app.use('/api/sincronizados', sincronizadosRouter);
 
 // ─── Frontend estático ───────────────────────────────────────────────────
 if (existsSync(DIST_DIR)) {

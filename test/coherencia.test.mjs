@@ -85,7 +85,7 @@ test('el rol por default de setup-idp existe en el manifest', () => {
 });
 
 test('los permisos que exigen los routers están declarados', () => {
-  const codigo = leer('server/routes/corridas.js');
+  const codigo = leer('server/routes/corridas.js') + leer('server/routes/sincronizados.js');
   const usados = [...codigo.matchAll(/requirePermission\('([^']+)'\)/g)].map((m) => m[1]);
   assert.ok(usados.length, 'los routers tienen que exigir algún permiso');
   for (const p of usados) {
@@ -195,4 +195,15 @@ test('las acciones coinciden en el CHECK, el server y los tipos', () => {
   assert.ok(leer('server/lib/corridas.js').includes(`ACCIONES = [${lista}]`), 'ACCIONES del server');
   assert.ok(leer('server/routes/corridas.js').includes(`[${lista}].includes(req.query.accion)`), 'filtro del router');
   assert.ok(leer('src/lib/types.ts').includes(acciones.map((a) => `'${a}'`).join(' | ')), 'AccionNovedad');
+});
+
+test('el historial sólo muestra lo que se escribió en Odoo, y es la portada', () => {
+  // "Sincronizado" = escrito y verificado (ejecutada), de cualquier corrida.
+  // Sin el filtro, el historial mezclaría simulaciones y pendientes.
+  const dominio = leer('server/lib/corridas.js');
+  const consulta = /export async function listarSincronizados[\s\S]*?\n}/.exec(dominio);
+  assert.ok(consulta, 'no se encontró listarSincronizados');
+  assert.match(consulta[0], /WHERE n\.ejecutada/);
+  assert.match(leer('server/index.js'), /app\.use\('\/api\/sincronizados', sincronizadosRouter\)/);
+  assert.match(leer('src/App.tsx'), /<Route path="\/" element={<Sincronizado \/>} \/>/);
 });

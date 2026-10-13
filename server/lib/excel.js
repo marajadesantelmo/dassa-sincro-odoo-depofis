@@ -194,3 +194,74 @@ export function nombreArchivo(corrida) {
   const fecha = new Date(corrida.iniciada_en).toISOString().slice(0, 10);
   return `Sincro DEPOFIS-Odoo ${fecha} corrida ${corrida.id} (${corrida.modo}).xlsx`;
 }
+
+// ─── Historial ─────────────────────────────────────────────────────────────
+
+const COLUMNAS_HISTORIAL_CLIENTE = [
+  { header: 'Fecha', key: 'fecha', width: 18 },
+  { header: 'Corrida', key: 'corrida_id', width: 9 },
+  { header: 'Acción', key: 'accion', width: 10 },
+  { header: 'clie_nro', key: 'depofis_id', width: 10 },
+  { header: 'Cliente (DEPOFIS)', key: 'odoo_nombre', width: 42 },
+  { header: 'CUIT', key: 'clave', width: 16 },
+  { header: 'Vendedor DEPOFIS', key: 'vendedor_depofis', width: 17 },
+  { header: 'Salesperson al sincronizar', key: 'vendedor_nombre', width: 26 },
+  { header: 'Cliente DASSA', key: 'es_dassa', width: 14 },
+  { header: 'Contacto Odoo (id)', key: 'odoo_id', width: 18 },
+  { header: 'Detalle', key: 'motivo', width: 70 },
+];
+
+const COLUMNAS_HISTORIAL_CONCEPTO = [
+  { header: 'Fecha', key: 'fecha', width: 18 },
+  { header: 'Corrida', key: 'corrida_id', width: 9 },
+  { header: 'Código', key: 'clave', width: 12 },
+  { header: 'Concepto (DEPOFIS)', key: 'odoo_nombre', width: 52 },
+  { header: 'Grupo', key: 'grupo', width: 26 },
+  { header: 'Producto Odoo (id)', key: 'odoo_id', width: 18 },
+  { header: 'Detalle', key: 'motivo', width: 70 },
+];
+
+const fechaLocal = (iso) => new Date(iso).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+
+/** Todo lo que la rutina escribió en Odoo, de todas las corridas. */
+export async function armarLibroHistorial(filas) {
+  const libro = new ExcelJS.Workbook();
+  libro.creator = 'Sincro DEPOFIS → Odoo · DASSA';
+  libro.created = new Date();
+
+  const hojaC = libro.addWorksheet('Clientes');
+  hojaC.columns = COLUMNAS_HISTORIAL_CLIENTE;
+  filas.filter((n) => n.tipo === 'cliente').forEach((n) => hojaC.addRow({
+    fecha: fechaLocal(n.sincronizado_en),
+    corrida_id: n.corrida_id,
+    accion: n.accion,
+    depofis_id: n.depofis_id || '',
+    odoo_nombre: n.odoo_nombre,
+    clave: n.clave || '',
+    vendedor_depofis: n.vendedor_depofis == null ? '' : n.vendedor_depofis,
+    vendedor_nombre: n.vendedor_nombre || '(sin Salesperson)',
+    es_dassa: si_no(n.es_dassa),
+    odoo_id: n.odoo_id ?? '',
+    motivo: n.motivo || '',
+  }));
+  encabezar(hojaC);
+
+  const hojaK = libro.addWorksheet('Conceptos');
+  hojaK.columns = COLUMNAS_HISTORIAL_CONCEPTO;
+  filas.filter((n) => n.tipo === 'concepto').forEach((n) => hojaK.addRow({
+    fecha: fechaLocal(n.sincronizado_en),
+    corrida_id: n.corrida_id,
+    clave: n.clave || '',
+    odoo_nombre: n.odoo_nombre,
+    grupo: (n.payload && n.payload.depofis && n.payload.depofis.grupo) || '',
+    odoo_id: n.odoo_id ?? '',
+    motivo: n.motivo || '',
+  }));
+  encabezar(hojaK);
+
+  return libro.xlsx.writeBuffer();
+}
+
+export function nombreArchivoHistorial() {
+  return `Sincro DEPOFIS-Odoo historial ${new Date().toISOString().slice(0, 10)}.xlsx`;
+}

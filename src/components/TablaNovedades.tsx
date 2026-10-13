@@ -19,7 +19,7 @@ const ODOO_URL = 'https://gestion.dassa.com.ar';
 
 /** Link a la ficha en Odoo. El formato `/web#id=` es el viejo, pero Odoo 19
  *  lo sigue redirigiendo y no depende del id de la acción de cada menú. */
-function LinkOdoo({ id, model }: { id: number | null; model: string }) {
+export function LinkOdoo({ id, model }: { id: number | null; model: string }) {
   if (id == null) return <span className="text-slate-300">—</span>;
   return (
     <a href={`${ODOO_URL}/web#id=${id}&model=${model}&view_type=form`} target="_blank" rel="noreferrer"
